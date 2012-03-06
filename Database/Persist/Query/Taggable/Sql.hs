@@ -30,6 +30,7 @@ import Prelude hiding ((++), show)
 data Taggable backend taggable tag tagmap =
   Taggable
   { taggableTags :: [Key backend tag]
+  , taggableRejectTags :: [Key backend tag]
   , taggableFilters :: [Filter taggable]
   , taggableOpts :: [SelectOpt taggable]
   , taggableTagMapFilt :: [Key backend tag] -> Filter tagmap
@@ -41,7 +42,7 @@ taggable :: [Key backend tag]
          -> ([Key backend tag] -> Filter tagmap)
          -> Filter tagmap
          -> Taggable backend taggable tag tagmap
-taggable tags tmF getKey = Taggable tags [] [] tmF getKey False
+taggable tags tmF getKey = Taggable tags [] [] [] tmF getKey False
 
 selectTaggableSource :: (PersistEntityBackend tag ~ SqlPersist,
                          C.ResourceIO m,
@@ -50,12 +51,17 @@ selectTaggableSource :: (PersistEntityBackend tag ~ SqlPersist,
                          PersistEntity tagmap)
                      => Taggable SqlPersist taggable tag tagmap
                      -> C.Source (SqlPersist m) (Entity taggable)
-selectTaggableSource (Taggable tags filts opts tmF getKey anyP) = C.Source
+selectTaggableSource (Taggable tags rejtags filts opts tmF getKey anyP) = C.Source
     { C.sourcePull = do
          conn <- lift $ SqlPersist ask
          let filtTagMap = tmF tags
-             vals = getFiltsValues conn [filtTagMap] Prelude.++ getFiltsValues conn filts
-             src = R.withStmt (sql conn tags) vals C.$= CL.mapM parse
+             filtRejTagMap = tmF rejtags
+             vals = getFiltsValues conn [filtTagMap] Prelude.++
+                    getFiltsValues conn [filtRejTagMap] Prelude.++
+                    getFiltsValues conn filts
+             src = R.withStmt (sql conn) vals C.$= CL.mapM parse
+         liftIO . print $ sql conn
+         liftIO . print $ vals
          C.sourcePull src
     , C.sourceClose = return ()
     }
@@ -76,10 +82,24 @@ selectTaggableSource (Taggable tags filts opts tmF getKey anyP) = C.Source
     fromPersistValues' _ = Left "error in fromPersistValues'"
 
     wher conn =
-      let s = filterClauseNoWhere True conn filts in
-      if not (T.null s)
-        then " WHERE " ++ s
-        else ""
+      let rejWher = rejtagWhere conn
+          s = filterClauseNoWhere True conn filts in
+      case (null rejtags, T.null s) of
+        (True, True) -> ""
+        (False, True) -> " WHERE " ++ rejWher
+        (True, False) -> " WHERE " ++ s
+        (False, False) -> " WHERE (" ++ rejWher ++ ") AND (" ++ s ++ ")"
+
+    rejtagWhere conn = T.concat
+        [ escapeName conn (entityDB t)
+        , ".id NOT IN (SELECT "
+        , escapeName conn $ filterName getKey
+        , " FROM "
+        , escapeName conn $ entityDB $ entityDef $ dummyFromFilts [tmF undefined]
+        , " WHERE "
+        , filterClauseNoWhere False conn [tmF rejtags]
+        , ")"
+        ]
 
     ord conn =
         case map (orderClause False conn) orders of
@@ -99,38 +119,38 @@ selectTaggableSource (Taggable tags filts opts tmF getKey anyP) = C.Source
                 $ escapeName conn (entityID t)
                 : map (escapeName conn . fieldDB) (entityFields t)
 
-    tagQuery conn tagkeys = T.concat
+    tagQuery conn = T.concat
         [ " INNER JOIN (SELECT "
         , tqKey
         , " FROM "
         , escapeName conn $ entityDB $ entityDef $ dummyFromFilts [tmF undefined]
-        , tqWhere conn tagkeys
+        , tqWhere conn
         , " GROUP BY "
         , tqKey
         , " HAVING COUNT("
         , tqKey
         , ")"
-        , if anyP then "> 0" else "== " ++ (show . length $ tagkeys)
+        , if anyP then "> 0" else "== " ++ (show . length $ tags)
         , ") ON "
         , tqKey
         , " = "
-        , escapeName conn (entityDB  t)
+        , escapeName conn (entityDB t)
         , ".id"
         ]
         where tqKey = escapeName conn $ filterName getKey
 
-    tqWhere conn tagkeys =
-      let s = filterClauseNoWhere False conn [tmF tagkeys] in
+    tqWhere conn =
+      let s = filterClauseNoWhere False conn [tmF tags] in
       if not (T.null s)
         then " WHERE " ++ s
         else ""
 
-    sql conn tagkeys = T.concat
+    sql conn = T.concat
       [ "SELECT "
       , cols conn
       , " FROM "
       , escapeName conn $ entityDB t
-      , tagQuery conn tagkeys
+      , tagQuery conn
       , wher conn
       , ord conn
       , lim conn
