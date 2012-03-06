@@ -60,8 +60,6 @@ selectTaggableSource (Taggable tags rejtags filts opts tmF getKey anyP) = C.Sour
                     getFiltsValues conn [filtRejTagMap] Prelude.++
                     getFiltsValues conn filts
              src = R.withStmt (sql conn) vals C.$= CL.mapM parse
-         liftIO . print $ sql conn
-         liftIO . print $ vals
          C.sourcePull src
     , C.sourceClose = return ()
     }
