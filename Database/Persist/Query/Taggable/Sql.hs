@@ -16,6 +16,7 @@ import Database.Persist.GenericSql.Internal
 import Control.Monad.IO.Class
 import Control.Monad.Trans.Class
 import Control.Monad.Trans.Reader
+import Control.Applicative
 import qualified Database.Persist.GenericSql.Raw as R
 import qualified Data.Text as T
 import qualified Data.Conduit as C
@@ -45,24 +46,26 @@ taggable :: [Key backend tag]
 taggable tags tmF getKey = Taggable tags [] [] [] tmF getKey False
 
 selectTaggableSource :: (PersistEntityBackend tag ~ SqlPersist,
-                         C.ResourceIO m,
+                         C.MonadUnsafeIO m,
+                         C.MonadThrow m,
+                         MonadIO m,
+                         Applicative m,
                          PersistEntity taggable,
                          PersistEntity tag,
                          PersistEntity tagmap)
                      => Taggable SqlPersist taggable tag tagmap
-                     -> C.Source (SqlPersist m) (Entity taggable)
-selectTaggableSource (Taggable tags rejtags filts opts tmF getKey anyP) = C.Source
-    { C.sourcePull = do
-         conn <- lift $ SqlPersist ask
-         let filtTagMap = tmF tags
-             filtRejTagMap = tmF rejtags
-             vals = getFiltsValues conn [filtTagMap] Prelude.++
-                    getFiltsValues conn [filtRejTagMap] Prelude.++
-                    getFiltsValues conn filts
-             src = R.withStmt (sql conn) vals C.$= CL.mapM parse
-         C.sourcePull src
-    , C.sourceClose = return ()
-    }
+                     -> C.Source (C.ResourceT (SqlPersist m)) (Entity taggable)
+selectTaggableSource (Taggable tags rejtags filts opts tmF getKey anyP) = C.PipeM
+    (do
+      conn <- lift $ SqlPersist ask
+      let filtTagMap = tmF tags
+          filtRejTagMap = tmF rejtags
+          vals = getFiltsValues conn [filtTagMap] Prelude.++
+                 getFiltsValues conn [filtRejTagMap] Prelude.++
+                 getFiltsValues conn filts
+      return $ R.withStmt (sql conn) vals C.$= CL.mapM parse)
+    (return ())
+
   where
     (limit, offset, orders) = limitOffsetOrder opts
 
