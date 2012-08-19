@@ -9,6 +9,7 @@ module Database.Persist.Query.Taggable.SqlInternal
        )
        where
 
+import Database.Persist.Query
 import Database.Persist.EntityDef
 import Database.Persist.Store
 import Database.Persist.Query.Internal
@@ -37,10 +38,10 @@ data Taggable backend taggable tag tagmap =
     }
 
 taggable :: [Key backend tag]
-         -> ([Key backend tag] -> Filter tagmap)
-         -> Filter tagmap
+         -> EntityField tagmap (Key backend tag)
+         -> EntityField tagmap (Key backend taggable)
          -> Taggable backend taggable tag tagmap
-taggable tags tmF getKey = Taggable tags [] [] [] tmF getKey False
+taggable tags tmF getKey = Taggable tags [] [] [] (tmF <-.) (getKey ==. undefined) False
 
 makeQuery :: ( PersistEntityBackend tag ~ SqlPersist
              , C.MonadUnsafeIO m

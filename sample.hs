@@ -59,8 +59,8 @@ main = withSqliteConn ":memory:" . runSqlConn $ do
     void . insert $ LanguageTag haskell pure
 
     let query = (taggable [functional, native]
-                 (LanguageTagTag <-.)
-                 (LanguageTagLanguage ==. undefined))
+                 LanguageTagTag
+                 LanguageTagLanguage)
                 { taggableFilters = [] :: [Filter Language]
                 }
     C.runResourceT
