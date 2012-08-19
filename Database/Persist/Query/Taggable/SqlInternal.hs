@@ -37,11 +37,11 @@ data Taggable backend taggable tag tagmap =
     , taggableAny :: Bool
     }
 
-taggable :: [Key backend tag]
-         -> EntityField tagmap (Key backend tag)
+taggable :: EntityField tagmap (Key backend tag)
          -> EntityField tagmap (Key backend taggable)
+         -> [Key backend tag]
          -> Taggable backend taggable tag tagmap
-taggable tags tmF getKey = Taggable tags [] [] [] (tmF <-.) (getKey ==. undefined) False
+taggable tmF getKey tags = Taggable tags [] [] [] (tmF <-.) (getKey ==. undefined) False
 
 makeQuery :: ( PersistEntityBackend tag ~ SqlPersist
              , C.MonadUnsafeIO m

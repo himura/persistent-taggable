@@ -58,11 +58,8 @@ main = withSqliteConn ":memory:" . runSqlConn $ do
 
     void . insert $ LanguageTag haskell pure
 
-    let query = (taggable [functional, native]
-                 LanguageTagTag
-                 LanguageTagLanguage)
-                { taggableFilters = [] :: [Filter Language]
-                }
+    let tagQuery = taggable LanguageTagTag LanguageTagLanguage
+        query = tagQuery [functional, native]
     C.runResourceT
         $    selectTaggableSource query
         C.$$ CL.mapM_ $ \lang -> do
