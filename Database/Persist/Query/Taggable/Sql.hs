@@ -15,7 +15,6 @@ import Database.Persist.Query.GenericSql
 import Database.Persist.GenericSql.Internal
 import qualified Database.Persist.GenericSql.Raw as R
 import qualified Data.Conduit as C
-import qualified Data.Conduit.Internal as CI
 import qualified Data.Conduit.List as CL
 import qualified Data.Text as T
 import Data.Monoid ((<>))
@@ -53,15 +52,14 @@ selectTaggableSource :: (PersistEntityBackend tag ~ SqlPersist,
                          PersistEntity tagmap)
                      => Taggable SqlPersist taggable tag tagmap
                      -> C.Source (C.ResourceT (SqlPersist m)) (Entity taggable)
-selectTaggableSource (Taggable tags rejtags filts opts tmF getKey anyP) = CI.PipeM
-    (do
-      conn <- lift $ SqlPersist ask
-      let filtTagMap = tmF tags
-          filtRejTagMap = tmF rejtags
-          vals = getFiltsValues conn [filtTagMap] Prelude.++
-                 getFiltsValues conn [filtRejTagMap] Prelude.++
-                 getFiltsValues conn filts
-      return $ R.withStmt (sql conn) vals C.$= CL.mapM parse)
+selectTaggableSource (Taggable tags rejtags filts opts tmF getKey anyP) = do
+    conn <- lift . lift $ SqlPersist ask
+    let filtTagMap = tmF tags
+        filtRejTagMap = tmF rejtags
+        vals = getFiltsValues conn [filtTagMap] ++
+               getFiltsValues conn [filtRejTagMap] ++
+               getFiltsValues conn filts
+    R.withStmt (sql conn) vals C.$= CL.mapM parse
 
   where
     (limit, offset, orders) = limitOffsetOrder opts
