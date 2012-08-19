@@ -13,22 +13,17 @@ import Database.Persist.Store
 import Database.Persist.Query.Internal
 import Database.Persist.Query.GenericSql
 import Database.Persist.GenericSql.Internal
-import Control.Monad.IO.Class
-import Control.Monad.Trans.Class
-import Control.Monad.Trans.Reader
-import Control.Monad.Logger
-import Control.Applicative
 import qualified Database.Persist.GenericSql.Raw as R
-import qualified Data.Text as T
 import qualified Data.Conduit as C
 import qualified Data.Conduit.Internal as CI
 import qualified Data.Conduit.List as CL
-
-import Control.Exception (throwIO)
-import Data.Monoid (mappend)
-
-import qualified Prelude
-import Prelude hiding ((++), show)
+import qualified Data.Text as T
+import Data.Monoid ((<>))
+import Control.Monad.Logger
+import Control.Monad.IO.Class
+import Control.Monad.Trans.Reader
+import Control.Monad.Trans.Class
+import Control.Applicative
 
 data Taggable backend taggable tag tagmap =
   Taggable
@@ -73,7 +68,7 @@ selectTaggableSource (Taggable tags rejtags filts opts tmF getKey anyP) = CI.Pip
 
     parse vals =
       case fromPersistValues' vals of
-        Left s -> liftIO $ throwIO $ PersistMarshalError s
+        Left s -> C.monadThrow $ PersistMarshalError s
         Right row -> return row
 
     t = entityDef $ dummyFromFilts filts
@@ -89,9 +84,9 @@ selectTaggableSource (Taggable tags rejtags filts opts tmF getKey anyP) = CI.Pip
           s = filterClauseNoWhere True conn filts in
       case (null rejtags, T.null s) of
         (True, True) -> ""
-        (False, True) -> " WHERE " ++ rejWher
-        (True, False) -> " WHERE " ++ s
-        (False, False) -> " WHERE (" ++ rejWher ++ ") AND (" ++ s ++ ")"
+        (False, True) -> " WHERE " <> rejWher
+        (True, False) -> " WHERE " <> s
+        (False, False) -> " WHERE (" <> rejWher <> ") AND (" <> s <> ")"
 
     rejtagWhere conn = T.concat
         [ escapeName conn (entityDB t)
@@ -107,16 +102,16 @@ selectTaggableSource (Taggable tags rejtags filts opts tmF getKey anyP) = CI.Pip
     ord conn =
         case map (orderClause False conn) orders of
             [] -> ""
-            ords -> " ORDER BY " ++ T.intercalate "," ords
+            ords -> " ORDER BY " <> T.intercalate "," ords
 
     lim conn = case (limit, offset) of
             (0, 0) -> ""
             (0, _) -> T.cons ' ' $ noLimit conn
-            (_, _) -> " LIMIT " ++ show limit
+            (_, _) -> " LIMIT " <> showTxt limit
 
     off = if offset == 0
             then ""
-            else " OFFSET " ++ show offset
+            else " OFFSET " <> showTxt offset
 
     cols conn = T.intercalate ","
                 $ escapeName conn (entityID t)
@@ -133,7 +128,7 @@ selectTaggableSource (Taggable tags rejtags filts opts tmF getKey anyP) = CI.Pip
         , " HAVING COUNT("
         , tqKey
         , ")"
-        , if anyP then "> 0" else "== " ++ (show . length $ tags)
+        , if anyP then "> 0" else "== " <> (showTxt . length $ tags)
         , ") ON "
         , tqKey
         , " = "
@@ -145,7 +140,7 @@ selectTaggableSource (Taggable tags rejtags filts opts tmF getKey anyP) = CI.Pip
     tqWhere conn =
       let s = filterClauseNoWhere False conn [tmF tags] in
       if not (T.null s)
-        then " WHERE " ++ s
+        then " WHERE " <> s
         else ""
 
     sql conn = T.concat
@@ -165,9 +160,5 @@ filterName (Filter f _ _) = fieldDB $ persistFieldDef f
 filterName (FilterAnd _) = error "expected a raw filter, not an And"
 filterName (FilterOr _) = error "expected a raw filter, not an Or"
 
-infixr 5 ++
-(++) :: T.Text -> T.Text -> T.Text
-(++) = mappend
-
-show :: Show a => a -> T.Text
-show = T.pack . Prelude.show
+showTxt :: Show a => a -> T.Text
+showTxt = T.pack . show
