@@ -16,10 +16,12 @@ import Database.Persist.GenericSql.Internal
 import Control.Monad.IO.Class
 import Control.Monad.Trans.Class
 import Control.Monad.Trans.Reader
+import Control.Monad.Logger
 import Control.Applicative
 import qualified Database.Persist.GenericSql.Raw as R
 import qualified Data.Text as T
 import qualified Data.Conduit as C
+import qualified Data.Conduit.Internal as CI
 import qualified Data.Conduit.List as CL
 
 import Control.Exception (throwIO)
@@ -48,6 +50,7 @@ taggable tags tmF getKey = Taggable tags [] [] [] tmF getKey False
 selectTaggableSource :: (PersistEntityBackend tag ~ SqlPersist,
                          C.MonadUnsafeIO m,
                          C.MonadThrow m,
+                         MonadLogger m,
                          MonadIO m,
                          Applicative m,
                          PersistEntity taggable,
@@ -55,7 +58,7 @@ selectTaggableSource :: (PersistEntityBackend tag ~ SqlPersist,
                          PersistEntity tagmap)
                      => Taggable SqlPersist taggable tag tagmap
                      -> C.Source (C.ResourceT (SqlPersist m)) (Entity taggable)
-selectTaggableSource (Taggable tags rejtags filts opts tmF getKey anyP) = C.PipeM
+selectTaggableSource (Taggable tags rejtags filts opts tmF getKey anyP) = CI.PipeM
     (do
       conn <- lift $ SqlPersist ask
       let filtTagMap = tmF tags
@@ -64,7 +67,6 @@ selectTaggableSource (Taggable tags rejtags filts opts tmF getKey anyP) = C.Pipe
                  getFiltsValues conn [filtRejTagMap] Prelude.++
                  getFiltsValues conn filts
       return $ R.withStmt (sql conn) vals C.$= CL.mapM parse)
-    (return ())
 
   where
     (limit, offset, orders) = limitOffsetOrder opts
