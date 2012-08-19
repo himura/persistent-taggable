@@ -25,15 +25,15 @@ import Control.Monad.Trans.Class
 import Control.Applicative
 
 data Taggable backend taggable tag tagmap =
-  Taggable
-  { taggableTags :: [Key backend tag]
-  , taggableRejectTags :: [Key backend tag]
-  , taggableFilters :: [Filter taggable]
-  , taggableOpts :: [SelectOpt taggable]
-  , taggableTagMapFilt :: [Key backend tag] -> Filter tagmap
-  , taggableGetKey :: Filter tagmap
-  , taggableAny :: Bool
-  }
+    Taggable
+    { taggableTags :: [Key backend tag]
+    , taggableRejectTags :: [Key backend tag]
+    , taggableFilters :: [Filter taggable]
+    , taggableOpts :: [SelectOpt taggable]
+    , taggableTagMapFilt :: [Key backend tag] -> Filter tagmap
+    , taggableGetKey :: Filter tagmap
+    , taggableAny :: Bool
+    }
 
 taggable :: [Key backend tag]
          -> ([Key backend tag] -> Filter tagmap)
@@ -66,13 +66,13 @@ makeQuery (Taggable tags rejtags filts opts tmF getKey anyP) = do
     t = entityDef $ dummyFromFilts filts
 
     wher conn =
-      let rejWher = rejtagWhere conn
-          s = filterClauseNoWhere True conn filts in
-      case (null rejtags, T.null s) of
-        (True, True) -> ""
-        (False, True) -> " WHERE " <> rejWher
-        (True, False) -> " WHERE " <> s
-        (False, False) -> " WHERE (" <> rejWher <> ") AND (" <> s <> ")"
+        let rejWher = rejtagWhere conn
+            s = filterClauseNoWhere True conn filts in
+        case (null rejtags, T.null s) of
+            (True, True) -> ""
+            (False, True) -> " WHERE " <> rejWher
+            (True, False) -> " WHERE " <> s
+            (False, False) -> " WHERE (" <> rejWher <> ") AND (" <> s <> ")"
 
     rejtagWhere conn = T.concat
         [ escapeName conn (entityDB t)
@@ -91,17 +91,18 @@ makeQuery (Taggable tags rejtags filts opts tmF getKey anyP) = do
             ords -> " ORDER BY " <> T.intercalate "," ords
 
     lim conn = case (limit, offset) of
-            (0, 0) -> ""
-            (0, _) -> T.cons ' ' $ noLimit conn
-            (_, _) -> " LIMIT " <> showTxt limit
+        (0, 0) -> ""
+        (0, _) -> T.cons ' ' $ noLimit conn
+        (_, _) -> " LIMIT " <> showTxt limit
 
     off = if offset == 0
-            then ""
-            else " OFFSET " <> showTxt offset
+        then ""
+        else " OFFSET " <> showTxt offset
 
-    cols conn = T.intercalate ","
-                $ escapeName conn (entityID t)
-                : map (escapeName conn . fieldDB) (entityFields t)
+    cols conn =
+        T.intercalate ","
+        $ escapeName conn (entityID t)
+        : map (escapeName conn . fieldDB) (entityFields t)
 
     tagQuery conn = T.concat
         [ " INNER JOIN (SELECT "
@@ -124,32 +125,32 @@ makeQuery (Taggable tags rejtags filts opts tmF getKey anyP) = do
         where tqKey = escapeName conn $ filterName getKey
 
     tqWhere conn =
-      let s = filterClauseNoWhere False conn [tmF tags] in
-      if not (T.null s)
+        let s = filterClauseNoWhere False conn [tmF tags] in
+        if not (T.null s)
         then " WHERE " <> s
         else ""
 
     sql conn = T.concat
-      [ "SELECT "
-      , cols conn
-      , " FROM "
-      , escapeName conn $ entityDB t
-      , tagQuery conn
-      , wher conn
-      , ord conn
-      , lim conn
-      , off
-      ]
+        [ "SELECT "
+        , cols conn
+        , " FROM "
+        , escapeName conn $ entityDB t
+        , tagQuery conn
+        , wher conn
+        , ord conn
+        , lim conn
+        , off
+        ]
 
-selectTaggableSource :: (PersistEntityBackend tag ~ SqlPersist,
-                         C.MonadUnsafeIO m,
-                         C.MonadThrow m,
-                         MonadLogger m,
-                         MonadIO m,
-                         Applicative m,
-                         PersistEntity taggable,
-                         PersistEntity tag,
-                         PersistEntity tagmap)
+selectTaggableSource :: ( PersistEntityBackend tag ~ SqlPersist
+                        , C.MonadUnsafeIO m
+                        , C.MonadThrow m
+                        , MonadLogger m
+                        , MonadIO m
+                        , Applicative m
+                        , PersistEntity taggable
+                        , PersistEntity tag
+                        , PersistEntity tagmap)
                      => Taggable SqlPersist taggable tag tagmap
                      -> C.Source (C.ResourceT (SqlPersist m)) (Entity taggable)
 selectTaggableSource t = do
@@ -157,14 +158,14 @@ selectTaggableSource t = do
     R.withStmt sql vals C.$= CL.mapM parse
   where
     parse vals =
-      case fromPersistValues' vals of
-        Left s -> C.monadThrow $ PersistMarshalError s
-        Right row -> return row
+        case fromPersistValues' vals of
+            Left s -> C.monadThrow $ PersistMarshalError s
+            Right row -> return row
 
     fromPersistValues' (PersistInt64 x:xs) =
-      case fromPersistValues xs of
-        Left e -> Left e
-        Right xs' -> Right (Entity (Key $ PersistInt64 x) xs')
+        case fromPersistValues xs of
+            Left e -> Left e
+            Right xs' -> Right (Entity (Key $ PersistInt64 x) xs')
     fromPersistValues' _ = Left "error in fromPersistValues'"
 
 
