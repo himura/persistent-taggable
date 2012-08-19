@@ -41,41 +41,29 @@ taggable :: [Key backend tag]
          -> Taggable backend taggable tag tagmap
 taggable tags tmF getKey = Taggable tags [] [] [] tmF getKey False
 
-selectTaggableSource :: (PersistEntityBackend tag ~ SqlPersist,
-                         C.MonadUnsafeIO m,
-                         C.MonadThrow m,
-                         MonadLogger m,
-                         MonadIO m,
-                         Applicative m,
-                         PersistEntity taggable,
-                         PersistEntity tag,
-                         PersistEntity tagmap)
-                     => Taggable SqlPersist taggable tag tagmap
-                     -> C.Source (C.ResourceT (SqlPersist m)) (Entity taggable)
-selectTaggableSource (Taggable tags rejtags filts opts tmF getKey anyP) = do
-    conn <- lift . lift $ SqlPersist ask
+makeQuery :: ( PersistEntityBackend tag ~ SqlPersist
+             , C.MonadUnsafeIO m
+             , C.MonadThrow m
+             , MonadLogger m
+             , MonadIO m
+             , Applicative m
+             , PersistEntity taggable
+             , PersistEntity tag
+             , PersistEntity tagmap)
+          => Taggable SqlPersist taggable tag tagmap
+          -> SqlPersist m (T.Text, [PersistValue])
+makeQuery (Taggable tags rejtags filts opts tmF getKey anyP) = do
+    conn <- SqlPersist ask
     let filtTagMap = tmF tags
         filtRejTagMap = tmF rejtags
         vals = getFiltsValues conn [filtTagMap] ++
                getFiltsValues conn [filtRejTagMap] ++
                getFiltsValues conn filts
-    R.withStmt (sql conn) vals C.$= CL.mapM parse
-
+    return (sql conn, vals)
   where
     (limit, offset, orders) = limitOffsetOrder opts
 
-    parse vals =
-      case fromPersistValues' vals of
-        Left s -> C.monadThrow $ PersistMarshalError s
-        Right row -> return row
-
     t = entityDef $ dummyFromFilts filts
-
-    fromPersistValues' (PersistInt64 x:xs) =
-      case fromPersistValues xs of
-        Left e -> Left e
-        Right xs' -> Right (Entity (Key $ PersistInt64 x) xs')
-    fromPersistValues' _ = Left "error in fromPersistValues'"
 
     wher conn =
       let rejWher = rejtagWhere conn
@@ -152,6 +140,33 @@ selectTaggableSource (Taggable tags rejtags filts opts tmF getKey anyP) = do
       , lim conn
       , off
       ]
+
+selectTaggableSource :: (PersistEntityBackend tag ~ SqlPersist,
+                         C.MonadUnsafeIO m,
+                         C.MonadThrow m,
+                         MonadLogger m,
+                         MonadIO m,
+                         Applicative m,
+                         PersistEntity taggable,
+                         PersistEntity tag,
+                         PersistEntity tagmap)
+                     => Taggable SqlPersist taggable tag tagmap
+                     -> C.Source (C.ResourceT (SqlPersist m)) (Entity taggable)
+selectTaggableSource t = do
+    (sql, vals) <- lift . lift $ makeQuery t
+    R.withStmt sql vals C.$= CL.mapM parse
+  where
+    parse vals =
+      case fromPersistValues' vals of
+        Left s -> C.monadThrow $ PersistMarshalError s
+        Right row -> return row
+
+    fromPersistValues' (PersistInt64 x:xs) =
+      case fromPersistValues xs of
+        Left e -> Left e
+        Right xs' -> Right (Entity (Key $ PersistInt64 x) xs')
+    fromPersistValues' _ = Left "error in fromPersistValues'"
+
 
 filterName :: PersistEntity v => Filter v -> DBName
 filterName (Filter f _ _) = fieldDB $ persistFieldDef f
