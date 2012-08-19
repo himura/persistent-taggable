@@ -4,15 +4,17 @@
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE OverloadedStrings #-}
-{-# OPTIONS_GHC -fno-warn-orphans #-}
+{-# LANGUAGE EmptyDataDecls #-}
 
 import Database.Persist
 import Database.Persist.TH
 import Database.Persist.Sqlite
 import Database.Persist.Query.Taggable.Sql
+import Database.Persist.Query.Taggable.SqlInternal
 import qualified Data.Conduit as C
 import qualified Data.Conduit.List as CL
 import qualified Data.Text as T
+import qualified Data.Text.IO as T
 import Control.Monad.IO.Class
 import Control.Monad
 
@@ -65,3 +67,9 @@ main = withSqliteConn ":memory:" . runSqlConn $ do
         $    selectTaggableSource query
         C.$$ CL.mapM_ $ \lang -> do
             liftIO . print . entityVal $ lang
+
+    liftIO $ putStrLn "\nQuery:"
+    (sql, vals) <- makeQuery query
+    liftIO $ do
+        T.putStrLn sql
+        print vals
