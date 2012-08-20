@@ -25,3 +25,21 @@ library
         Database.Persist.Query.Taggable.Sql
     other-modules:
         Database.Persist.Query.Taggable.SqlInternal
+
+test-suite tests
+  type:              exitcode-stdio-1.0
+  hs-source-dirs:    tests, .
+  main-is:           test.hs
+  build-depends:
+      base >= 4.0 && < 5
+    , transformers >= 0.2 && < 0.4
+    , text
+    , conduit >= 0.5 && < 0.6
+    , monad-logger
+    , persistent
+    , persistent-sqlite
+    , persistent-template
+    , hspec
+    , hspec-expectations
+  ghc-options:       -Wall
+
