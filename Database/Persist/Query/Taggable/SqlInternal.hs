@@ -118,7 +118,7 @@ makeQuery (Taggable tags rejtags filts opts tmF getKey anyP) = do
         , tqKey
         , ")"
         , if anyP then "> 0" else "= " <> (showTxt . length $ tags)
-        , ") ON "
+        , ") MTAG ON MTAG."
         , tqKey
         , " = "
         , escapeName conn (entityDB t)
