@@ -117,7 +117,7 @@ makeQuery (Taggable tags rejtags filts opts tmF getKey anyP) = do
         , " HAVING COUNT("
         , tqKey
         , ")"
-        , if anyP then "> 0" else "== " <> (showTxt . length $ tags)
+        , if anyP then "> 0" else "= " <> (showTxt . length $ tags)
         , ") ON "
         , tqKey
         , " = "
