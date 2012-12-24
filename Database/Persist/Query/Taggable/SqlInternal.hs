@@ -26,25 +26,24 @@ import Control.Monad.Trans.Reader
 import Control.Monad.Trans.Class
 import Control.Applicative
 
-data Taggable backend taggable tag tagmap =
+data Taggable taggable tag tagmap =
     Taggable
-    { taggableTags :: [Key backend tag]
-    , taggableRejectTags :: [Key backend tag]
+    { taggableTags :: [Key tag]
+    , taggableRejectTags :: [Key tag]
     , taggableFilters :: [Filter taggable]
     , taggableOpts :: [SelectOpt taggable]
-    , taggableTagMapFilt :: [Key backend tag] -> Filter tagmap
+    , taggableTagMapFilt :: [Key tag] -> Filter tagmap
     , taggableGetKey :: Filter tagmap
     , taggableAny :: Bool
     }
 
-taggable :: EntityField tagmap (Key backend tag)
-         -> EntityField tagmap (Key backend taggable)
-         -> [Key backend tag]
-         -> Taggable backend taggable tag tagmap
+taggable :: EntityField tagmap (Key tag)
+         -> EntityField tagmap (Key taggable)
+         -> [Key tag]
+         -> Taggable taggable tag tagmap
 taggable tmF getKey tags = Taggable tags [] [] [] (tmF <-.) (getKey ==. undefined) False
 
-makeQuery :: ( PersistEntityBackend tag ~ SqlPersist
-             , C.MonadUnsafeIO m
+makeQuery :: ( C.MonadUnsafeIO m
              , C.MonadThrow m
              , MonadLogger m
              , MonadIO m
@@ -52,7 +51,7 @@ makeQuery :: ( PersistEntityBackend tag ~ SqlPersist
              , PersistEntity taggable
              , PersistEntity tag
              , PersistEntity tagmap)
-          => Taggable SqlPersist taggable tag tagmap
+          => Taggable taggable tag tagmap
           -> SqlPersist m (T.Text, [PersistValue])
 makeQuery (Taggable tags rejtags filts opts tmF getKey anyP) = do
     conn <- SqlPersist ask
@@ -144,8 +143,7 @@ makeQuery (Taggable tags rejtags filts opts tmF getKey anyP) = do
         , off
         ]
 
-selectTaggableSource :: ( PersistEntityBackend tag ~ SqlPersist
-                        , C.MonadUnsafeIO m
+selectTaggableSource :: ( C.MonadUnsafeIO m
                         , C.MonadThrow m
                         , MonadLogger m
                         , MonadIO m
@@ -153,7 +151,7 @@ selectTaggableSource :: ( PersistEntityBackend tag ~ SqlPersist
                         , PersistEntity taggable
                         , PersistEntity tag
                         , PersistEntity tagmap)
-                     => Taggable SqlPersist taggable tag tagmap
+                     => Taggable taggable tag tagmap
                      -> C.Source (C.ResourceT (SqlPersist m)) (Entity taggable)
 selectTaggableSource t = do
     (sql, vals) <- lift . lift $ makeQuery t
@@ -175,6 +173,7 @@ filterName :: PersistEntity v => Filter v -> DBName
 filterName (Filter f _ _) = fieldDB $ persistFieldDef f
 filterName (FilterAnd _) = error "expected a raw filter, not an And"
 filterName (FilterOr _) = error "expected a raw filter, not an Or"
+filterName (BackendFilter _) = error "expected a raw filter, not an Or"
 
 showTxt :: Show a => a -> T.Text
 showTxt = T.pack . show

@@ -19,7 +19,7 @@ library
                  , monad-logger >= 0.2
                  , text
                  , conduit >= 0.5 && < 0.6
-                 , persistent >= 1.0
+                 , persistent >= 1.1
     ghc-options: -Wall -threaded
     exposed-modules:
         Database.Persist.Query.Taggable.Sql
