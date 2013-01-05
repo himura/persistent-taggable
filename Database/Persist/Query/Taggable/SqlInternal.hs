@@ -21,10 +21,8 @@ import qualified Data.Conduit.List as CL
 import qualified Data.Text as T
 import Data.Monoid ((<>))
 import Control.Monad.Logger
-import Control.Monad.IO.Class
 import Control.Monad.Trans.Reader
 import Control.Monad.Trans.Class
-import Control.Applicative
 
 data Taggable taggable tag tagmap =
     Taggable
@@ -43,11 +41,7 @@ taggable :: EntityField tagmap (Key tag)
          -> Taggable taggable tag tagmap
 taggable tmF getKey tags = Taggable tags [] [] [] (tmF <-.) (getKey ==. undefined) False
 
-makeQuery :: ( C.MonadUnsafeIO m
-             , C.MonadThrow m
-             , MonadLogger m
-             , MonadIO m
-             , Applicative m
+makeQuery :: ( MonadLogger m
              , PersistEntity taggable
              , PersistEntity tag
              , PersistEntity tagmap)
@@ -143,18 +137,16 @@ makeQuery (Taggable tags rejtags filts opts tmF getKey anyP) = do
         , off
         ]
 
-selectTaggableSource :: ( C.MonadUnsafeIO m
+selectTaggableSource :: ( C.MonadResource m
                         , C.MonadThrow m
                         , MonadLogger m
-                        , MonadIO m
-                        , Applicative m
                         , PersistEntity taggable
                         , PersistEntity tag
                         , PersistEntity tagmap)
                      => Taggable taggable tag tagmap
-                     -> C.Source (C.ResourceT (SqlPersist m)) (Entity taggable)
+                     -> C.Source (SqlPersist m) (Entity taggable)
 selectTaggableSource t = do
-    (sql, vals) <- lift . lift $ makeQuery t
+    (sql, vals) <- lift $ makeQuery t
     R.withStmt sql vals C.$= CL.mapM parse
   where
     parse vals =
