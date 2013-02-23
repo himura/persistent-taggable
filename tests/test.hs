@@ -38,17 +38,17 @@ UserTag
     deriving Show
 |]
 
-tagQuery :: [Key backend (TagGeneric backend)]
-         -> Taggable backend (UserGeneric backend) (TagGeneric backend) (UserTagGeneric backend)
+tagQuery :: [TagQuery (TagGeneric backend)]
+         -> Taggable (UserGeneric backend) (TagGeneric backend) (UserTagGeneric backend)
 tagQuery = taggable UserTagTag UserTagUser
 
 withDB
-  :: SqlPersist IO a -> IO a
-withDB job = withSqliteConn ":memory:" . runSqlConn $ do
+  :: SqlPersist (C.ResourceT IO) a -> IO a
+withDB job = C.runResourceT $  withSqliteConn ":memory:" . runSqlConn $ do
     runMigration migrateAll
     job
 
-prepare :: SqlPersist IO (Key SqlPersist Tag, Key SqlPersist Tag)
+prepare :: SqlPersist (C.ResourceT IO) (Key Tag, Key Tag)
 prepare = do
     smith <- insert $ User "Smith"
     yamada <- insert $ User "Yamada"
@@ -63,10 +63,9 @@ prepare = do
 
     return (t1, t2)
 
-queryTaggableVal :: Taggable SqlPersist User Tag UserTag -> SqlPersist IO [User]
+queryTaggableVal :: Taggable User Tag UserTag -> SqlPersist (C.ResourceT IO) [User]
 queryTaggableVal query =
-    C.runResourceT
-    $ selectTaggableSource query
+    selectTaggableSource query
     C.$= CL.map entityVal
     C.$$ CL.consume
 
@@ -75,23 +74,28 @@ main = hspec $
     describe "with database" $ do
         it "single" $ withDB $ do
             (t1, _t2) <- prepare
-            ret <- queryTaggableVal $ tagQuery [t1]
+            ret <- queryTaggableVal $ tagQuery [TagQueryAnd [t1]]
             let ex = Lst.sort [User "Suzuki", User "Yamada"]
             liftIO $ (Lst.sort ret) `shouldBe` ex
 
         it "and query" $ withDB $ do
             (t1, t2) <- prepare
-            ret <- queryTaggableVal $ tagQuery [t1, t2]
+            ret <- queryTaggableVal $ tagQuery [TagQueryAnd [t1, t2]]
+            liftIO $ ret `shouldBe` [User "Suzuki"]
+
+        it "and query" $ withDB $ do
+            (t1, t2) <- prepare
+            ret <- queryTaggableVal $ tagQuery [TagQueryAnd [t1], TagQueryAnd [t2]]
             liftIO $ ret `shouldBe` [User "Suzuki"]
 
         it "any" $ withDB $ do
             (t1, t2) <- prepare
-            ret <- queryTaggableVal $ (tagQuery [t1, t2]) { taggableAny = True }
+            ret <- queryTaggableVal $ tagQuery [TagQueryAny [t1, t2]]
             let ex = Lst.sort [User "Suzuki", User "Yamada", User "Smith"]
             liftIO $ (Lst.sort ret) `shouldBe` ex
 
         it "reject tag" $ withDB $ do
             (t1, t2) <- prepare
-            ret <- queryTaggableVal $ (tagQuery [t1]) { taggableRejectTags = [t2] }
+            ret <- queryTaggableVal $ (tagQuery [TagQueryAnd [t1]]) { taggableRejectTags = [t2] }
             let ex = Lst.sort [User "Yamada"]
             liftIO $ (Lst.sort ret) `shouldBe` ex

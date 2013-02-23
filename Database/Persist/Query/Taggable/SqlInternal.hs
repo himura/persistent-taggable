@@ -1,8 +1,10 @@
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE FlexibleContexts #-}
 
 module Database.Persist.Query.Taggable.SqlInternal
        ( Taggable(..)
+       , TagQuery (..)
        , taggable
        , makeQuery
        , selectTaggableSource
@@ -24,37 +26,38 @@ import Control.Monad.Logger
 import Control.Monad.Trans.Reader
 import Control.Monad.Trans.Class
 
+data TagQuery tag = TagQueryAnd [Key tag] | TagQueryAny [Key tag]
+
 data Taggable taggable tag tagmap =
     Taggable
-    { taggableTags :: [Key tag]
+    { taggableTags :: [TagQuery tag]
     , taggableRejectTags :: [Key tag]
     , taggableFilters :: [Filter taggable]
     , taggableOpts :: [SelectOpt taggable]
     , taggableTagMapFilt :: [Key tag] -> Filter tagmap
     , taggableGetKey :: Filter tagmap
-    , taggableAny :: Bool
     }
 
 taggable :: EntityField tagmap (Key tag)
          -> EntityField tagmap (Key taggable)
-         -> [Key tag]
+         -> [TagQuery tag]
          -> Taggable taggable tag tagmap
-taggable tmF getKey tags = Taggable tags [] [] [] (tmF <-.) (getKey ==. undefined) False
+taggable tmF getKey tags = Taggable tags [] [] [] (tmF <-.) (getKey ==. undefined)
 
-makeQuery :: ( MonadLogger m
+makeQuery :: ( Monad m
              , PersistEntity taggable
              , PersistEntity tag
              , PersistEntity tagmap)
           => Taggable taggable tag tagmap
           -> SqlPersist m (T.Text, [PersistValue])
-makeQuery (Taggable tags rejtags filts opts tmF getKey anyP) = do
+makeQuery (Taggable tagsQuery rejtags filts opts tmF getKey) = do
     conn <- SqlPersist ask
-    let filtTagMap = tmF tags
+    let (s, tagvals) = sql conn
         filtRejTagMap = tmF rejtags
-        vals = getFiltsValues conn [filtTagMap] ++
+        vals = tagvals ++
                getFiltsValues conn [filtRejTagMap] ++
                getFiltsValues conn filts
-    return (sql conn, vals)
+    return (s, vals)
   where
     (limit, offset, orders) = limitOffsetOrder opts
 
@@ -99,46 +102,65 @@ makeQuery (Taggable tags rejtags filts opts tmF getKey anyP) = do
         $ escapeName conn (entityID t)
         : map (escapeName conn . fieldDB) (entityFields t)
 
-    tagQuery conn = T.concat
-        [ " INNER JOIN (SELECT "
-        , tqKey
-        , " FROM "
-        , escapeName conn $ entityDB $ entityDef $ dummyFromFilts [tmF undefined]
-        , tqWhere conn
-        , " GROUP BY "
-        , tqKey
-        , " HAVING COUNT("
-        , tqKey
-        , ")"
-        , if anyP then "> 0" else "= " <> (showTxt . length $ tags)
-        , ") MTAG ON MTAG."
-        , tqKey
-        , " = "
-        , escapeName conn (entityDB t)
-        , ".id"
-        ]
-        where tqKey = escapeName conn $ filterName getKey
+    makeTagQuery _ _ ([], _) = ("", [])
+    makeTagQuery conn anyP (tags, n) = (s, vals)
+      where
+        (wh, vals) = tqWhere conn tags
+        s = T.concat
+            [ " INNER JOIN (SELECT "
+            , tqKey
+            , " FROM "
+            , escapeName conn $ entityDB $ entityDef $ dummyFromFilts [tmF undefined]
+            , wh
+            , " GROUP BY "
+            , tqKey
+            , " HAVING COUNT("
+            , tqKey
+            , ")"
+            , if anyP then "> 0" else "= " <> (showTxt . length $ tags)
+            , ") ", mtag, " ON ", mtag, "."
+            , tqKey
+            , " = "
+            , escapeName conn (entityDB t)
+            , ".id"
+            ]
+        tqKey = escapeName conn $ filterName getKey
+        mtag = T.pack $ "MTAG" ++ show n
 
-    tqWhere conn =
-        let s = filterClauseNoWhere False conn [tmF tags] in
+    tqWhere conn tags =
         if not (T.null s)
-        then " WHERE " <> s
-        else ""
+        then (" WHERE " <> s, vals)
+        else ("", vals)
+      where
+        filt = [tmF tags]
+        vals = getFiltsValues conn filt
+        s = filterClauseNoWhere False conn filt
 
-    sql conn = T.concat
-        [ "SELECT "
-        , cols conn
-        , " FROM "
-        , escapeName conn $ entityDB t
-        , tagQuery conn
-        , wher conn
-        , ord conn
-        , lim conn
-        , off
-        ]
+    (tagands, taganys) = foldr go ([], []) tagsQuery
+      where
+        go (TagQueryAnd v) ~(ands,ors) = (v:ands, ors)
+        go (TagQueryAny v) ~(ands,ors) = (ands, v:ors)
+
+    sql conn = (s, andVals ++ concat anyVals)
+      where
+        s = T.concat $
+            [ "SELECT "
+            , cols conn
+            , " FROM "
+            , escapeName conn $ entityDB t
+            , sqland
+            ]
+            ++ sqlanys
+            ++
+            [ wher conn
+            , ord conn
+            , lim conn
+            , off
+            ]
+        (sqland, andVals) = makeTagQuery conn False ((concat tagands), 0)
+        (sqlanys, anyVals) = unzip $ map (makeTagQuery conn True) $ zip taganys [(1::Int)..]
 
 selectTaggableSource :: ( C.MonadResource m
-                        , C.MonadThrow m
                         , MonadLogger m
                         , PersistEntity taggable
                         , PersistEntity tag

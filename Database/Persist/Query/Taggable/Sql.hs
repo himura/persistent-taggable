@@ -3,6 +3,7 @@
 
 module Database.Persist.Query.Taggable.Sql
        ( Taggable(..)
+       , TagQuery (..)
        , taggable
        , selectTaggableSource
        )
