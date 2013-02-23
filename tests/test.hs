@@ -6,10 +6,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE EmptyDataDecls #-}
 
-import Test.Hspec.Monadic
-import Test.Hspec.HUnit()
-import Test.Hspec.Expectations
-
+import Test.Hspec
 import Database.Persist
 import Database.Persist.TH
 import Database.Persist.Sqlite
@@ -22,7 +19,7 @@ import Control.Monad.IO.Class
 import Control.Monad
 
 share [mkPersist sqlSettings, mkMigrate "migrateAll"] [persist|
-User
+Language
     name T.Text Eq
     deriving Show
     deriving Eq
@@ -31,16 +28,16 @@ Tag
     name T.Text Update Eq
     UniqueTagNameKey name
     deriving Show
-UserTag
-    user UserId Eq
+LanguageTag
+    language LanguageId Eq
     tag TagId Eq
-    UniqueUserTag user tag
+    UniqueLanguageTag language tag
     deriving Show
 |]
 
 tagQuery :: [TagQuery (TagGeneric backend)]
-         -> Taggable (UserGeneric backend) (TagGeneric backend) (UserTagGeneric backend)
-tagQuery = taggable UserTagTag UserTagUser
+         -> Taggable (LanguageGeneric backend) (TagGeneric backend) (LanguageTagGeneric backend)
+tagQuery = taggable LanguageTagTag LanguageTagLanguage
 
 withDB
   :: SqlPersist (C.ResourceT IO) a -> IO a
@@ -48,22 +45,35 @@ withDB job = C.runResourceT $  withSqliteConn ":memory:" . runSqlConn $ do
     runMigration migrateAll
     job
 
-prepare :: SqlPersist (C.ResourceT IO) (Key Tag, Key Tag)
+prepare :: SqlPersist (C.ResourceT IO) ()
 prepare = do
-    smith <- insert $ User "Smith"
-    yamada <- insert $ User "Yamada"
-    suzuki <- insert $ User "Suzuki"
-    t1 <- insert $ Tag "TestTag1"
-    t2 <- insert $ Tag "TestTag2"
+    haskell <- insert $ Language "Haskell"
+    ocaml <- insert $ Language "OCaml"
+    lisp <- insert $ Language "Lisp"
+    java <- insert $ Language "Java"
+    scala <- insert $ Language "Scala"
+    cpp <- insert $ Language "C++"
+    ruby <- insert $ Language "Ruby"
 
-    forM_ [yamada, suzuki] $ \u -> do
-        insert $ UserTag u t1
-    forM_ [smith, suzuki] $ \u -> do
-        insert $ UserTag u t2
+    pure <- insert $ Tag "Pure"
+    forM_ [haskell] $ \lang -> insert $ LanguageTag lang pure
 
-    return (t1, t2)
+    functional <- insert $ Tag "Functional"
+    forM_ [haskell, ocaml, lisp, scala] $ \lang -> (insert $ LanguageTag lang functional)
 
-queryTaggableVal :: Taggable User Tag UserTag -> SqlPersist (C.ResourceT IO) [User]
+    strongly_typed <- insert $ Tag "StronglyTyped"
+    forM_ [haskell, ocaml, java, scala, cpp, ruby] $ \lang -> (insert $ LanguageTag lang strongly_typed)
+
+    static_typed <- insert $ Tag "StaticTyped"
+    forM_ [haskell, ocaml, java, scala, cpp] $ \lang -> (insert $ LanguageTag lang static_typed)
+
+    oop <- insert $ Tag "OOP"
+    forM_ [java, ocaml, scala, cpp, ruby] $ \lang -> (insert $ LanguageTag lang oop)
+
+    jvm <- insert $ Tag "JVM"
+    forM_ [java, scala] $ \lang -> (insert $ LanguageTag lang jvm)
+
+queryTaggableVal :: Taggable Language Tag LanguageTag -> SqlPersist (C.ResourceT IO) [Language]
 queryTaggableVal query =
     selectTaggableSource query
     C.$= CL.map entityVal
@@ -73,29 +83,81 @@ main :: IO ()
 main = hspec $
     describe "with database" $ do
         it "single" $ withDB $ do
-            (t1, _t2) <- prepare
-            ret <- queryTaggableVal $ tagQuery [TagQueryAnd [t1]]
-            let ex = Lst.sort [User "Suzuki", User "Yamada"]
+            prepare
+            Just (Entity strongly _) <- getBy $ UniqueTagNameKey "StronglyTyped"
+            let ex = Lst.sort $ map Language ["Haskell", "OCaml", "Java", "Scala", "C++", "Ruby"]
+
+            ret <- queryTaggableVal $ tagQuery [TagQueryAnd [strongly]]
             liftIO $ (Lst.sort ret) `shouldBe` ex
 
         it "and query" $ withDB $ do
-            (t1, t2) <- prepare
-            ret <- queryTaggableVal $ tagQuery [TagQueryAnd [t1, t2]]
-            liftIO $ ret `shouldBe` [User "Suzuki"]
+            prepare
+            Just (Entity strongly _) <- getBy $ UniqueTagNameKey "StronglyTyped"
+            Just (Entity static _) <- getBy $ UniqueTagNameKey "StaticTyped"
+            let ex = Lst.sort $ map Language ["Haskell", "OCaml", "Java", "Scala", "C++"]
 
-        it "and query" $ withDB $ do
-            (t1, t2) <- prepare
-            ret <- queryTaggableVal $ tagQuery [TagQueryAnd [t1], TagQueryAnd [t2]]
-            liftIO $ ret `shouldBe` [User "Suzuki"]
+            ret <- queryTaggableVal $ tagQuery [TagQueryAnd [strongly, static]]
+            liftIO $ (Lst.sort ret) `shouldBe` ex
+
+        it "separately and query" $ withDB $ do
+            prepare
+            Just (Entity strongly _) <- getBy $ UniqueTagNameKey "StronglyTyped"
+            Just (Entity static _) <- getBy $ UniqueTagNameKey "StaticTyped"
+            let ex = Lst.sort $ map Language ["Haskell", "OCaml", "Java", "Scala", "C++"]
+
+            ret <- queryTaggableVal $ tagQuery [TagQueryAnd [strongly], TagQueryAnd [static]]
+            liftIO $ (Lst.sort ret) `shouldBe` ex
 
         it "any" $ withDB $ do
-            (t1, t2) <- prepare
-            ret <- queryTaggableVal $ tagQuery [TagQueryAny [t1, t2]]
-            let ex = Lst.sort [User "Suzuki", User "Yamada", User "Smith"]
+            prepare
+            Just (Entity functional _) <- getBy $ UniqueTagNameKey "Functional"
+            Just (Entity static _) <- getBy $ UniqueTagNameKey "StaticTyped"
+            let ex = Lst.sort $ map Language ["Haskell", "OCaml", "Lisp", "Java", "Scala", "C++"]
+            ret <- queryTaggableVal $ tagQuery [TagQueryAny [functional, static]]
             liftIO $ (Lst.sort ret) `shouldBe` ex
 
+        it "any3" $ withDB $ do
+            prepare
+            Just (Entity functional _) <- getBy $ UniqueTagNameKey "Functional"
+            Just (Entity static _) <- getBy $ UniqueTagNameKey "StaticTyped"
+            Just (Entity oop _) <- getBy $ UniqueTagNameKey "OOP"
+            let ex = Lst.sort $ map Language ["Haskell", "OCaml", "Lisp", "Java", "Scala", "C++", "Ruby"]
+            ret <- queryTaggableVal $ tagQuery [TagQueryAny [functional, static, oop]]
+            liftIO $ (Lst.sort ret) `shouldBe` ex
+
+        it "perform both 'and' and 'any' query simultaneously" $ withDB $ do
+            prepare
+            Just (Entity functional _) <- getBy $ UniqueTagNameKey "Functional"
+            Just (Entity static _) <- getBy $ UniqueTagNameKey "StaticTyped"
+            Just (Entity oop _) <- getBy $ UniqueTagNameKey "OOP"
+            Just (Entity strongly _) <- getBy $ UniqueTagNameKey "StronglyTyped"
+            let ex = Lst.sort $ map Language ["OCaml", "Java", "Scala", "C++"]
+
+            ret1 <- queryTaggableVal $ tagQuery [ TagQueryAny [functional, static]
+                                                , TagQueryAnd [oop, strongly]
+                                                ]
+            liftIO $ (Lst.sort ret1) `shouldBe` ex
+
+            ret2 <- queryTaggableVal $ tagQuery [ TagQueryAnd [oop]
+                                                , TagQueryAny [functional, static]
+                                                , TagQueryAnd [strongly]
+                                                ]
+            liftIO $ (Lst.sort ret2) `shouldBe` ex
+
+            ret3 <- queryTaggableVal $ tagQuery [ TagQueryAnd [oop, strongly]
+                                                , TagQueryAny [functional, static]
+                                                ]
+            liftIO $ (Lst.sort ret3) `shouldBe` ex
+
         it "reject tag" $ withDB $ do
-            (t1, t2) <- prepare
-            ret <- queryTaggableVal $ (tagQuery [TagQueryAnd [t1]]) { taggableRejectTags = [t2] }
-            let ex = Lst.sort [User "Yamada"]
+            prepare
+            Just (Entity static _) <- getBy $ UniqueTagNameKey "StaticTyped"
+            Just (Entity oop _) <- getBy $ UniqueTagNameKey "OOP"
+            Just (Entity strongly _) <- getBy $ UniqueTagNameKey "StronglyTyped"
+            Just (Entity jvm _) <- getBy $ UniqueTagNameKey "JVM"
+            Just (Entity pure _) <- getBy $ UniqueTagNameKey "Pure"
+            let ex = Lst.sort $ map Language ["Haskell"]
+            ret <- queryTaggableVal $
+                       (tagQuery [TagQueryAnd [strongly, static], TagQueryAny [pure, jvm]])
+                           { taggableRejectTags = [oop] }
             liftIO $ (Lst.sort ret) `shouldBe` ex
