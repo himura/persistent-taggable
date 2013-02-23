@@ -125,7 +125,7 @@ makeQuery (Taggable tagsQuery rejtags filts opts tmF getKey) = do
             , ".id"
             ]
         tqKey = escapeName conn $ filterName getKey
-        mtag = T.pack $ "MTAG" ++ show n
+        mtag = "MTAG" <> showTxt n
 
     tqWhere conn tags =
         if not (T.null s)
@@ -181,7 +181,6 @@ selectTaggableSource t = do
             Left e -> Left e
             Right xs' -> Right (Entity (Key $ PersistInt64 x) xs')
     fromPersistValues' _ = Left "error in fromPersistValues'"
-
 
 filterName :: PersistEntity v => Filter v -> DBName
 filterName (Filter f _ _) = fieldDB $ persistFieldDef f
