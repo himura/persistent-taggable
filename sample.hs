@@ -34,7 +34,7 @@ LanguageTag
 |]
 
 main :: IO ()
-main = withSqliteConn ":memory:" . runSqlConn $ do
+main = C.runResourceT $ withSqliteConn ":memory:" . runSqlConn $ do
     runMigration migrateAll
 
     haskell <- insert $ Language "Haskell"
@@ -59,11 +59,9 @@ main = withSqliteConn ":memory:" . runSqlConn $ do
     void . insert $ LanguageTag haskell pure
 
     let tagQuery = taggable LanguageTagTag LanguageTagLanguage
-        query = tagQuery [functional, native]
-    C.runResourceT
-        $    selectTaggableSource query
-        C.$$ CL.mapM_ $ \lang -> do
-            liftIO . print . entityVal $ lang
+        query = tagQuery [TagQueryAnd [functional, native]]
+    selectTaggableSource query C.$$ CL.mapM_ $ \lang -> do
+        liftIO . print . entityVal $ lang
 
     liftIO $ putStrLn "\nQuery:"
     (sql, vals) <- makeQuery query
