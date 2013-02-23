@@ -1,5 +1,5 @@
 name:              persistent-taggable
-version:           0.1.0
+version:           0.1.1
 license:           BSD3
 author:            Takahiro HIMURA
 maintainer:        taka@himura.jp
@@ -23,7 +23,6 @@ library
     ghc-options: -Wall -threaded
     exposed-modules:
         Database.Persist.Query.Taggable.Sql
-    other-modules:
         Database.Persist.Query.Taggable.SqlInternal
 
 test-suite tests
