@@ -17,6 +17,7 @@ import qualified Data.Text as T
 import qualified Data.List as Lst
 import Control.Monad.IO.Class
 import Control.Monad
+import Control.Monad.Logger
 
 share [mkPersist sqlSettings, mkMigrate "migrateAll"] [persist|
 Language
@@ -39,13 +40,14 @@ tagQuery :: [TagQuery (TagGeneric backend)]
          -> Taggable (LanguageGeneric backend) (TagGeneric backend) (LanguageTagGeneric backend)
 tagQuery = taggable LanguageTagTag LanguageTagLanguage
 
-withDB
-  :: SqlPersist (C.ResourceT IO) a -> IO a
-withDB job = C.runResourceT $  withSqliteConn ":memory:" . runSqlConn $ do
+withDB :: SqlPersist (C.ResourceT (NoLoggingT IO)) a -> IO a
+withDB job = runNoLoggingT $ C.runResourceT $ withSqliteConn ":memory:" . runSqlConn $ do
     runMigration migrateAll
     job
 
-prepare :: SqlPersist (C.ResourceT IO) ()
+prepare :: ( C.MonadResource m
+           , MonadLogger m
+           ) => SqlPersist m ()
 prepare = do
     haskell <- insert $ Language "Haskell"
     ocaml <- insert $ Language "OCaml"
@@ -73,7 +75,11 @@ prepare = do
     jvm <- insert $ Tag "JVM"
     forM_ [java, scala] $ \lang -> (insert $ LanguageTag lang jvm)
 
-queryTaggableVal :: Taggable Language Tag LanguageTag -> SqlPersist (C.ResourceT IO) [Language]
+queryTaggableVal :: ( C.MonadResource m
+                    , MonadLogger m
+                    )
+                 => Taggable Language Tag LanguageTag
+                 -> SqlPersist m [Language]
 queryTaggableVal query =
     selectTaggableSource query
     C.$= CL.map entityVal
