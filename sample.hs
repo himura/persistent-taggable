@@ -4,21 +4,18 @@
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE EmptyDataDecls #-}
 
-import Database.Persist
 import Database.Persist.TH
 import Database.Persist.Sqlite
 import Database.Persist.Query.Taggable.Sql
-import Database.Persist.Query.Taggable.SqlInternal
 import qualified Data.Conduit as C
 import qualified Data.Conduit.List as CL
 import qualified Data.Text as T
-import qualified Data.Text.IO as T
 import Control.Monad.IO.Class
 import Control.Monad
+import Control.Monad.Logger
 
-share [mkPersist sqlSettings, mkMigrate "migrateAll"] [persist|
+share [mkPersist sqlSettings, mkMigrate "migrateAll"] [persistUpperCase|
 Language
     fullname T.Text Eq
     deriving Show
@@ -33,10 +30,15 @@ LanguageTag
     deriving Show
 |]
 
-main :: IO ()
-main = C.runResourceT $ withSqliteConn ":memory:" . runSqlConn $ do
-    runMigration migrateAll
+run :: SqlPersistT (C.ResourceT (LoggingT IO)) a -> IO a
+run = runStderrLoggingT .
+      C.runResourceT .
+      withSqliteConn ":memory:" .
+      runSqlConn .
+      (runMigration migrateAll >>)
 
+main :: IO ()
+main = run $ do
     haskell <- insert $ Language "Haskell"
     ocaml <- insert $ Language "OCaml"
     scala <- insert $ Language "Scala"
@@ -58,13 +60,8 @@ main = C.runResourceT $ withSqliteConn ":memory:" . runSqlConn $ do
 
     void . insert $ LanguageTag haskell pure
 
-    let tagQuery = taggable LanguageTagTag LanguageTagLanguage
-        query = tagQuery [TagQueryAnd [functional, native]]
-    selectTaggableSource query C.$$ CL.mapM_ $ \lang -> do
-        liftIO . print . entityVal $ lang
-
-    liftIO $ putStrLn "\nQuery:"
-    (sql, vals) <- makeQuery query
-    liftIO $ do
-        T.putStrLn sql
-        print vals
+    let taggableField = TaggableField LanguageId LanguageTagTag LanguageTagLanguage
+        query = TagQuery [functional, native] [] []
+    src <- selectTaggableSource taggableField query
+    C.runResourceT $ src C.$$ CL.mapM_ $ \lang -> do
+        liftIO . print $ lang
