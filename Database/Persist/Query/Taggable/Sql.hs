@@ -30,25 +30,21 @@ data TaggableField taggable tag tagging =
 type RunDbMonad m = ( C.MonadBaseControl IO m, MonadIO m, MonadLogger m
                     , C.MonadUnsafeIO m, C.MonadThrow m )
 
-type TaggableConstraint b taggable tagging =
-    ( SqlEntity taggable
-    , SqlEntity tagging
-    , b ~ SqlBackend
-    )
-
-taggableQuery :: ( TaggableConstraint backend taggable tagging
-                 , E.ToSomeValues expr (expr (Value (KeyBackend backend taggable)))
-                 , E.From query expr backend (expr (Entity taggable))
-                 , E.From query expr backend (expr (Entity tagging))
+taggableQuery :: ( SqlEntity taggable
+                 , SqlEntity tagging
+                 , E.ToSomeValues expr (expr (Value (KeyBackend SqlBackend taggable)))
+                 , E.From query expr SqlBackend (expr (Entity taggable))
+                 , E.From query expr SqlBackend (expr (Entity tagging))
                  )
               => TaggableField taggable tag tagging
               -> TagQuery tag
               -> query (expr (Value (Key taggable)))
 taggableQuery = (E.from .) . taggableWhere
 
-taggableWhere :: ( TaggableConstraint backend taggable tagging
-                 , E.ToSomeValues expr (expr (Value (KeyBackend backend taggable)))
-                 , E.From query expr backend (expr (Entity tagging))
+taggableWhere :: ( SqlEntity taggable
+                 , SqlEntity tagging
+                 , E.ToSomeValues expr (expr (Value (KeyBackend SqlBackend taggable)))
+                 , E.From query expr SqlBackend (expr (Entity tagging))
                  )
               => TaggableField taggable tag tagging
               -> TagQuery tag
@@ -90,30 +86,40 @@ selectTaggable :: ( SqlEntity tagging
 selectTaggable = (E.select .) . taggableJoin
 
 selectTaggableKey
-    :: ( RunDbMonad m, TaggableConstraint backend taggable tagging)
+    :: ( RunDbMonad m
+       , SqlEntity taggable
+       , SqlEntity tagging
+       )
     => TaggableField taggable tag tagging
     -> TagQuery tag
-    -> SqlPersistT m [Value (KeyBackend backend taggable)]
+    -> SqlPersistT m [Value (KeyBackend SqlBackend taggable)]
 selectTaggableKey = (E.select .) . taggableQuery
 
 selectTaggableSource
-    :: ( RunDbMonad m, TaggableConstraint backend taggable tagging)
+    :: ( RunDbMonad m
+       , SqlEntity taggable
+       , SqlEntity tagging
+       )
     => TaggableField taggable tag tagging
     -> TagQuery tag
     -> SqlPersistT m (C.Source (C.ResourceT (SqlPersistT m)) (Entity taggable))
 selectTaggableSource = (E.selectSource .) . taggableJoin
 
 selectTaggableKeySource
-    :: ( RunDbMonad m, TaggableConstraint backend taggable tagging)
+    :: ( RunDbMonad m
+       , SqlEntity taggable
+       , SqlEntity tagging
+       )
     => TaggableField taggable tag tagging
     -> TagQuery tag
     -> SqlPersistT m (C.Source (C.ResourceT (SqlPersistT m)) (Value (KeyBackend SqlBackend taggable)))
 selectTaggableKeySource = (E.selectSource .) . taggableQuery
 
 makeTagQuery
-    :: ( TaggableConstraint backend taggable tagging
-       , E.ToSomeValues expr (expr (Value (KeyBackend backend taggable)))
-       , E.From query expr backend (expr (Entity tagging))
+    :: ( SqlEntity taggable
+       , SqlEntity tagging
+       , E.ToSomeValues expr (expr (Value (KeyBackend SqlBackend taggable)))
+       , E.From query expr SqlBackend (expr (Entity tagging))
        )
     => TaggableField taggable tag tagging
     -> (expr (Value Int) -> expr (Value Bool))
