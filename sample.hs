@@ -62,6 +62,9 @@ main = run $ do
 
     let taggableField = TaggableField LanguageId LanguageTagTag LanguageTagLanguage
         query = TagQuery [functional, native] [] []
+
     src <- selectTaggableSource taggableField query
     C.runResourceT $ src C.$$ CL.mapM_ $ \lang -> do
         liftIO . print $ lang
+
+    liftIO . print =<< selectTaggable taggableField query
