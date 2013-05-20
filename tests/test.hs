@@ -7,7 +7,7 @@
 {-# LANGUAGE EmptyDataDecls #-}
 
 import Test.Hspec
-import Database.Esqueleto
+import Database.Esqueleto as E
 import Database.Persist.TH
 import Database.Persist.Sqlite
 import Database.Persist.Query.Taggable.Sql
@@ -75,13 +75,13 @@ prepare = do
     jvm <- insert $ Tag "JVM"
     forM_ [java, scala] $ \lang -> (insert $ LanguageTag lang jvm)
 
-type TQ expr backend = TagQuery expr (LanguageGeneric backend) (TagGeneric backend) (LanguageTagGeneric backend)
-languageQuery :: TQ expr backend
+type TQ query expr backend = TagQuery query expr (LanguageGeneric backend) (TagGeneric backend) (LanguageTagGeneric backend)
+languageQuery :: TQ SqlQuery expr backend
 languageQuery = tagQuery fieldDef
   where
     fieldDef = TagQueryFieldDef LanguageId LanguageTagTag LanguageTagLanguage
 
-queryTaggableVal :: TQ SqlExpr SqlBackend
+queryTaggableVal :: TQ SqlQuery SqlExpr SqlBackend
                  -> SqlPersistT (C.ResourceT (LoggingT IO)) [LanguageGeneric SqlBackend]
 queryTaggableVal query = do
     res <- selectTaggableSource query
@@ -147,3 +147,23 @@ main = hspec $
                                                     , tagQueryRejectTags = [oop]
                                                     }
             liftIO $ (Lst.sort ret) `shouldBe` ex
+
+        it "addtional query" $ runTest $ do
+            Just (Entity strongly _) <- getBy $ UniqueTagNameKey "StronglyTyped"
+            Just (Entity static _) <- getBy $ UniqueTagNameKey "StaticTyped"
+            let ex = map Language ["C++", "Java", "OCaml", "Scala"]
+                notHaskell order language = do
+                    E.where_ $ language E.^. LanguageName E.!=. E.val "Haskell"
+                    E.orderBy $ [order (language E.^. LanguageName)]
+
+            ret <- queryTaggableVal $
+                   languageQuery { tagQueryTags = [strongly, static]
+                                 , tagQueryAdditional = (notHaskell E.asc)
+                                 }
+            liftIO $ ret `shouldBe` ex
+
+            retReverse <- queryTaggableVal $
+                   languageQuery { tagQueryTags = [strongly, static]
+                                 , tagQueryAdditional = (notHaskell E.desc)
+                                 }
+            liftIO $ retReverse `shouldBe` (reverse ex)

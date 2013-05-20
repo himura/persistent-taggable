@@ -13,12 +13,12 @@ import Control.Monad.Logger
 import Control.Monad
 import Control.Monad.IO.Class
 
-data TagQuery expr taggable tag tagging =
+data TagQuery query expr taggable tag tagging =
     TagQuery
     { tagQueryTags :: [Key tag]
     , tagQueryAnyTags :: [[Key tag]]
     , tagQueryRejectTags :: [Key tag]
-    , tagQueryWhere :: Maybe (expr (Entity taggable) -> expr (Value Bool))
+    , tagQueryAdditional :: (expr (Entity taggable) -> query ())
     , tagQueryFieldDef :: TagQueryFieldDef taggable tag tagging
     }
 
@@ -29,9 +29,10 @@ data TagQueryFieldDef taggable tag tagging =
     , tagQueryTaggingTaggableId :: EntityField tagging (Key taggable)
     }
 
-tagQuery :: TagQueryFieldDef taggable tag tagging
-         -> TagQuery expr taggable tag tagging
-tagQuery = TagQuery [] [] [] Nothing
+tagQuery :: Monad query
+         => TagQueryFieldDef taggable tag tagging
+         -> TagQuery query expr taggable tag tagging
+tagQuery = TagQuery [] [] [] (const (return ()))
 
 type RunDbMonad m = ( C.MonadBaseControl IO m, MonadIO m, MonadLogger m
                     , C.MonadUnsafeIO m, C.MonadThrow m )
@@ -42,7 +43,7 @@ taggableQuery :: ( SqlEntity tagging
                  , E.From query expr SqlBackend (expr (Entity tagging))
                  , E.From query expr SqlBackend (expr (Entity taggable))
                  )
-              => TagQuery expr taggable tag tagging
+              => TagQuery query expr taggable tag tagging
               -> query (expr (Entity taggable))
 taggableQuery TagQuery{..} =
     E.from $ \taggable -> do
@@ -56,9 +57,7 @@ taggableQuery TagQuery{..} =
                 E.from $ \rejtags -> do
                    E.where_ $ rejtags E.^. tagQueryTaggingTagId `E.in_` E.valList tagQueryRejectTags
                    return $ rejtags E.^. tagQueryTaggingTaggableId
-        case tagQueryWhere of
-            Just query -> E.where_ (query taggable)
-            Nothing -> return ()
+        tagQueryAdditional taggable
         return taggable
   where
     TagQueryFieldDef{..} = tagQueryFieldDef
@@ -69,7 +68,7 @@ selectTaggable :: ( SqlEntity taggable
                   , SqlEntity tagging
                   , RunDbMonad m
                   )
-               => TagQuery SqlExpr taggable tag tagging
+               => TagQuery SqlQuery SqlExpr taggable tag tagging
                -> SqlPersistT m [Entity taggable]
 selectTaggable = E.select . taggableQuery
 
@@ -78,7 +77,7 @@ selectTaggableSource
        , SqlEntity taggable
        , SqlEntity tagging
        )
-    => TagQuery SqlExpr taggable tag tagging
+    => TagQuery SqlQuery SqlExpr taggable tag tagging
     -> SqlPersistT m (C.Source (C.ResourceT (SqlPersistT m)) (Entity taggable))
 selectTaggableSource = E.selectSource . taggableQuery
 
