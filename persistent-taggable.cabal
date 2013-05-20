@@ -16,14 +16,13 @@ source-repository head
 library
     build-depends: base >= 4 && < 5
                  , transformers >= 0.2 && < 0.4
-                 , monad-logger >= 0.2
-                 , text
-                 , conduit >= 0.5
-                 , persistent >= 1.1 && < 1.2
+                 , monad-logger >= 0.3
+                 , conduit >= 1.0
+                 , persistent >= 1.2
+                 , esqueleto >= 1.2.2
     ghc-options: -Wall -threaded
     exposed-modules:
         Database.Persist.Query.Taggable.Sql
-        Database.Persist.Query.Taggable.SqlInternal
 
 test-suite tests
   type:              exitcode-stdio-1.0
@@ -34,11 +33,12 @@ test-suite tests
     , transformers-base
     , transformers >= 0.2 && < 0.4
     , text
-    , conduit >= 0.5
+    , conduit >= 1.0
     , monad-logger
     , persistent
     , persistent-sqlite
     , persistent-template
+    , esqueleto
     , hspec
     , hspec-expectations
   ghc-options:       -Wall
