@@ -1,3 +1,4 @@
+{-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE TypeFamilies #-}
@@ -6,6 +7,7 @@
 module Database.Persist.Query.Taggable.Sql
        where
 
+import Control.Lens
 import qualified Database.Esqueleto.Internal.Language as E
 import Database.Esqueleto as E
 import qualified Data.Conduit as C
@@ -13,21 +15,23 @@ import Control.Monad.Logger
 import Control.Monad
 import Control.Monad.IO.Class
 
-data TagQuery query expr taggable tag tagging =
-    TagQuery
-    { tagQueryTags :: [Key tag]
-    , tagQueryAnyTags :: [[Key tag]]
-    , tagQueryRejectTags :: [Key tag]
-    , tagQueryAdditional :: (expr (Entity taggable) -> query ())
-    , tagQueryFieldDef :: TagQueryFieldDef taggable tag tagging
-    }
-
 data TagQueryFieldDef taggable tag tagging =
     TagQueryFieldDef
-    { tagQueryTaggableId :: EntityField taggable (Key taggable)
-    , tagQueryTaggingTagId :: EntityField tagging (Key tag)
-    , tagQueryTaggingTaggableId :: EntityField tagging (Key taggable)
+    { _taggableId :: EntityField taggable (Key taggable)
+    , _taggingTagId :: EntityField tagging (Key tag)
+    , _taggingTaggableId :: EntityField tagging (Key taggable)
     }
+makeLenses ''TagQueryFieldDef
+
+data TagQuery query expr taggable tag tagging =
+    TagQuery
+    { _tags :: [Key tag]
+    , _anyTags :: [[Key tag]]
+    , _rejectTags :: [Key tag]
+    , _additional :: (expr (Entity taggable) -> query ())
+    , _fieldDef :: TagQueryFieldDef taggable tag tagging
+    }
+makeLenses ''TagQuery
 
 tagQuery :: Monad query
          => TagQueryFieldDef taggable tag tagging
@@ -47,22 +51,22 @@ taggableQuery :: ( SqlEntity tagging
               -> query (expr (Entity taggable))
 taggableQuery TagQuery{..} =
     E.from $ \taggable -> do
-        when (not . null $ tagQueryTags) $
-            E.where_ $ andQuery taggable tagQueryTags
-        when (not . null $ tagQueryAnyTags) $
-            E.where_ $ foldr1 (E.&&.) $ map (anyQuery taggable) tagQueryAnyTags
-        when (not . null $ tagQueryRejectTags) $
-            E.where_ $ E.notIn (taggable E.^. tagQueryTaggableId) $
+        when (not . null $ _tags) $
+            E.where_ $ andQuery taggable _tags
+        when (not . null $ _anyTags) $
+            E.where_ $ foldr1 (E.&&.) $ map (anyQuery taggable) _anyTags
+        when (not . null $ _rejectTags) $
+            E.where_ $ E.notIn (taggable E.^. _taggableId) $
                 E.subList_select $
                 E.from $ \rejtags -> do
-                   E.where_ $ rejtags E.^. tagQueryTaggingTagId `E.in_` E.valList tagQueryRejectTags
-                   return $ rejtags E.^. tagQueryTaggingTaggableId
-        tagQueryAdditional taggable
+                   E.where_ $ rejtags E.^. _taggingTagId `E.in_` E.valList _rejectTags
+                   return $ rejtags E.^. _taggingTaggableId
+        _additional taggable
         return taggable
   where
-    TagQueryFieldDef{..} = tagQueryFieldDef
-    andQuery = makeTagQuery tagQueryFieldDef (E.==. (E.val (length tagQueryTags)))
-    anyQuery = makeTagQuery tagQueryFieldDef (E.>. (E.val (0 :: Int)))
+    TagQueryFieldDef{..} = _fieldDef
+    andQuery = makeTagQuery _fieldDef (E.==. (E.val (length _tags)))
+    anyQuery = makeTagQuery _fieldDef (E.>. (E.val (0 :: Int)))
 
 selectTaggable :: ( SqlEntity taggable
                   , SqlEntity tagging
@@ -90,14 +94,14 @@ makeTagQuery
     => TagQueryFieldDef taggable tag tagging
     -> (expr (Value Int) -> expr (Value Bool))
     -> expr (Entity taggable) -> [Key tag] -> expr (Value Bool)
-makeTagQuery TagQueryFieldDef{..} condition taggable tags =
-    E.in_ (taggable E.^. tagQueryTaggableId) $
+makeTagQuery TagQueryFieldDef{..} condition taggable tagList =
+    E.in_ (taggable E.^. _taggableId) $
     E.subList_select $
     E.from $ \tagging -> do
-        E.where_ (tagging E.^. tagQueryTaggingTagId `E.in_` (E.valList tags))
-        E.groupBy (tagging E.^. tagQueryTaggingTaggableId)
-        let cnt = E.count (tagging E.^. tagQueryTaggingTaggableId)
+        E.where_ (tagging E.^. _taggingTagId `E.in_` (E.valList tagList))
+        E.groupBy (tagging E.^. _taggingTaggableId)
+        let cnt = E.count (tagging E.^. _taggingTaggableId)
         E.having (condition cnt)
-        return (tagging E.^. tagQueryTaggingTaggableId)
+        return (tagging E.^. _taggingTaggableId)
 
 

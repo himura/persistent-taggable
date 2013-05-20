@@ -1,5 +1,5 @@
 name:              persistent-taggable
-version:           0.3.0
+version:           0.3.1
 license:           BSD3
 author:            Takahiro HIMURA
 maintainer:        taka@himura.jp
@@ -18,8 +18,8 @@ library
                  , transformers >= 0.2 && < 0.4
                  , monad-logger >= 0.3
                  , conduit >= 1.0
-                 , persistent >= 1.2
                  , esqueleto >= 1.2.2
+                 , lens
     ghc-options: -Wall -threaded
     exposed-modules:
         Database.Persist.Query.Taggable.Sql
@@ -35,10 +35,10 @@ test-suite tests
     , text
     , conduit >= 1.0
     , monad-logger
-    , persistent
     , persistent-sqlite
     , persistent-template
     , esqueleto
+    , lens
     , hspec
     , hspec-expectations
   ghc-options:       -Wall

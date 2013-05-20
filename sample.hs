@@ -5,11 +5,12 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE OverloadedStrings #-}
 
+import Control.Lens
 import Database.Persist.TH
 import Database.Persist.Sqlite
+import qualified Database.Esqueleto as E
 import Database.Persist.Query.Taggable.Sql
 import qualified Data.Conduit as C
-import qualified Data.Conduit.List as CL
 import qualified Data.Text as T
 import Control.Monad.IO.Class
 import Control.Monad
@@ -61,8 +62,16 @@ main = run $ do
     void . insert $ LanguageTag haskell pure
 
     let field = TagQueryFieldDef LanguageId LanguageTagTag LanguageTagLanguage
-        query = (tagQuery field) { tagQueryTags = [functional, native] }
 
-    src <- selectTaggableSource query
-    C.runResourceT $ src C.$$ CL.mapM_ $ \lang -> do
-        liftIO . print $ lang
+    liftIO $ putStrLn "==== Functional ===="
+    let q1 = tagQuery field & tags .~ [functional]
+    liftIO . mapM_ print =<< selectTaggable q1
+
+    liftIO $ putStrLn "==== Functional && Native ===="
+    let q2 = q1 & tags %~ cons native
+    liftIO . mapM_ print =<< selectTaggable q2
+
+    liftIO $ putStrLn "==== Functional && Native && not Haskell ===="
+    let notHaskellWhere language = E.where_ $ (language E.^. LanguageFullname) E.!=. (E.val "Haskell")
+        q3 = q2 & additional .~ notHaskellWhere
+    liftIO . mapM_ print =<< selectTaggable q3
