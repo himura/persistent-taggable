@@ -60,9 +60,9 @@ main = run $ do
 
     void . insert $ LanguageTag haskell pure
 
-    let taggableField = TaggableField LanguageId LanguageTagTag LanguageTagLanguage
-        query = TagQuery [functional, native] [] []
+    let field = TagQueryFieldDef LanguageId LanguageTagTag LanguageTagLanguage
+        query = (tagQuery field) { tagQueryTags = [functional, native] }
 
-    src <- selectTaggableSource taggableField query
+    src <- selectTaggableSource query
     C.runResourceT $ src C.$$ CL.mapM_ $ \lang -> do
         liftIO . print $ lang
