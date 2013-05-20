@@ -66,5 +66,3 @@ main = run $ do
     src <- selectTaggableSource taggableField query
     C.runResourceT $ src C.$$ CL.mapM_ $ \lang -> do
         liftIO . print $ lang
-
-    liftIO . print =<< selectTaggable taggableField query

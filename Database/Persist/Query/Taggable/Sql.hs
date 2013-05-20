@@ -30,51 +30,30 @@ data TaggableField taggable tag tagging =
 type RunDbMonad m = ( C.MonadBaseControl IO m, MonadIO m, MonadLogger m
                     , C.MonadUnsafeIO m, C.MonadThrow m )
 
-taggableQuery :: ( SqlEntity taggable
-                 , SqlEntity tagging
+taggableQuery :: ( SqlEntity tagging
+                 , SqlEntity taggable
                  , E.ToSomeValues expr (expr (Value (KeyBackend SqlBackend taggable)))
+                 , E.From query expr SqlBackend (expr (Entity tagging))
                  , E.From query expr SqlBackend (expr (Entity taggable))
-                 , E.From query expr SqlBackend (expr (Entity tagging))
-                 )
-              => TaggableField taggable tag tagging
+                 ) => TaggableField taggable tag tagging
               -> TagQuery tag
-              -> query (expr (Value (Key taggable)))
-taggableQuery = (E.from .) . taggableWhere
-
-taggableWhere :: ( SqlEntity taggable
-                 , SqlEntity tagging
-                 , E.ToSomeValues expr (expr (Value (KeyBackend SqlBackend taggable)))
-                 , E.From query expr SqlBackend (expr (Entity tagging))
-                 )
-              => TaggableField taggable tag tagging
-              -> TagQuery tag
-              -> expr (Entity taggable)
-              -> query (expr (Value (Key taggable)))
-taggableWhere tf@TaggableField{..} TagQuery{..} taggable = do
-    E.where_ andQuery
-    when (not . null $ tagQueryAnyTags) $
-        E.where_ $ foldr1 (E.&&.) $ map (anyQuery taggable) tagQueryAnyTags
-    return (taggable E.^. taggable_taggableId)
+              -> query (expr (Entity taggable))
+taggableQuery tf@TaggableField{..} TagQuery{..} =
+    E.from $ \taggable -> do
+        when (not . null $ tagQueryTags) $
+            E.where_ $ andQuery taggable tagQueryTags
+        when (not . null $ tagQueryAnyTags) $
+            E.where_ $ foldr1 (E.&&.) $ map (anyQuery taggable) tagQueryAnyTags
+        when (not . null $ tagQueryRejectTags) $
+            E.where_ $ E.notIn (taggable E.^. taggable_taggableId) $
+                E.subList_select $
+                E.from $ \rejtags -> do
+                   E.where_ $ rejtags E.^. taggable_taggingTagId `E.in_` E.valList tagQueryRejectTags
+                   return $ rejtags E.^. taggable_taggingTaggableId
+        return taggable
   where
-    andQuery = makeTagQuery tf (E.==. (E.val (length tagQueryTags))) taggable tagQueryTags
+    andQuery = makeTagQuery tf (E.==. (E.val (length tagQueryTags)))
     anyQuery = makeTagQuery tf (E.>. (E.val (0 :: Int)))
-
-taggableJoin :: ( SqlEntity tagging
-                , SqlEntity taggable
-                , E.ToSomeValues expr (expr (Value (KeyBackend SqlBackend taggable)))
-                , E.FromPreprocess query expr SqlBackend (expr (Entity taggable))
-                , E.From query expr SqlBackend (expr (Entity tagging))
-                )
-             => TaggableField taggable tag tagging
-             -> TagQuery tag
-             -> query (expr (Entity taggable))
-taggableJoin tf@TaggableField{..} tq@TagQuery{..} = do
-    E.from $ \(taggable `E.InnerJoin` matched) -> do
-        E.on $ taggable E.^. taggable_taggableId E.==. matched E.^. taggable_taggableId
-        _taggableKey <- taggableWhere tf tq matched
-        -- when (not . null $ tagQueryRejectTags) $
-        --     E.where_ $ (taggable E.^. taggable_taggingTagId) `E.notIn` (E.valList tagQueryRejectTags)
-        return $ taggable
 
 selectTaggable :: ( SqlEntity tagging
                   , SqlEntity taggable
@@ -83,17 +62,7 @@ selectTaggable :: ( SqlEntity tagging
                => TaggableField taggable tag tagging
                -> TagQuery tag
                -> SqlPersistT m [Entity taggable]
-selectTaggable = (E.select .) . taggableJoin
-
-selectTaggableKey
-    :: ( RunDbMonad m
-       , SqlEntity taggable
-       , SqlEntity tagging
-       )
-    => TaggableField taggable tag tagging
-    -> TagQuery tag
-    -> SqlPersistT m [Value (KeyBackend SqlBackend taggable)]
-selectTaggableKey = (E.select .) . taggableQuery
+selectTaggable = (E.select .) . taggableQuery
 
 selectTaggableSource
     :: ( RunDbMonad m
@@ -103,17 +72,7 @@ selectTaggableSource
     => TaggableField taggable tag tagging
     -> TagQuery tag
     -> SqlPersistT m (C.Source (C.ResourceT (SqlPersistT m)) (Entity taggable))
-selectTaggableSource = (E.selectSource .) . taggableJoin
-
-selectTaggableKeySource
-    :: ( RunDbMonad m
-       , SqlEntity taggable
-       , SqlEntity tagging
-       )
-    => TaggableField taggable tag tagging
-    -> TagQuery tag
-    -> SqlPersistT m (C.Source (C.ResourceT (SqlPersistT m)) (Value (KeyBackend SqlBackend taggable)))
-selectTaggableKeySource = (E.selectSource .) . taggableQuery
+selectTaggableSource = (E.selectSource .) . taggableQuery
 
 makeTagQuery
     :: ( SqlEntity taggable
