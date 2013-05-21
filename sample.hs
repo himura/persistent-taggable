@@ -4,12 +4,12 @@
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE EmptyDataDecls #-}
 
-import Control.Lens
 import Database.Persist.TH
 import Database.Persist.Sqlite
 import qualified Database.Esqueleto as E
-import Database.Persist.Query.Taggable.Sql
+import qualified Database.Persist.Query.Taggable.Sql as Taggable
 import qualified Data.Conduit as C
 import qualified Data.Text as T
 import Control.Monad.IO.Class
@@ -40,6 +40,9 @@ run = runStderrLoggingT .
 
 main :: IO ()
 main = run $ do
+    let taggingField = Taggable.TaggingFieldDef LanguageId LanguageTagTag LanguageTagLanguage
+        taggedWith = Taggable.taggedWith taggingField
+
     haskell <- insert $ Language "Haskell"
     ocaml <- insert $ Language "OCaml"
     scala <- insert $ Language "Scala"
@@ -61,17 +64,20 @@ main = run $ do
 
     void . insert $ LanguageTag haskell pure
 
-    let field = TagQueryFieldDef LanguageId LanguageTagTag LanguageTagLanguage
-
     liftIO $ putStrLn "==== Functional ===="
-    let q1 = tagQuery field & tags .~ [functional]
-    liftIO . mapM_ print =<< selectTaggable q1
+    res1 <- E.select $ E.from $ \language -> do
+        language `taggedWith` [functional]
+        return language
+    liftIO . mapM_ print $ res1
+    liftIO $ putStrLn "==== Functional && Native ===="
+    res2 <- E.select $ E.from $ \language -> do
+        language `taggedWith` [functional, native]
+        return language
+    liftIO . mapM_ print $ res2
 
     liftIO $ putStrLn "==== Functional && Native ===="
-    let q2 = q1 & tags %~ cons native
-    liftIO . mapM_ print =<< selectTaggable q2
-
-    liftIO $ putStrLn "==== Functional && Native && not Haskell ===="
-    let notHaskellWhere language = E.where_ $ (language E.^. LanguageFullname) E.!=. (E.val "Haskell")
-        q3 = q2 & additional .~ notHaskellWhere
-    liftIO . mapM_ print =<< selectTaggable q3
+    res3 <- E.select $ E.from $ \language -> do
+        language `taggedWith` [functional, native]
+        E.where_ $ (language E.^. LanguageFullname) E.!=. (E.val "Haskell")
+        return language
+    liftIO . mapM_ print $ res3

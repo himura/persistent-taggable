@@ -1,107 +1,66 @@
-{-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ConstraintKinds #-}
-{-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE FlexibleContexts #-}
 
 module Database.Persist.Query.Taggable.Sql
        where
 
-import Control.Lens
-import qualified Database.Esqueleto.Internal.Language as E
-import Database.Esqueleto as E
-import qualified Data.Conduit as C
-import Control.Monad.Logger
-import Control.Monad
-import Control.Monad.IO.Class
+import Database.Esqueleto.Internal.Language
+import Database.Esqueleto
 
-data TagQueryFieldDef taggable tag tagging =
-    TagQueryFieldDef
-    { _taggableId :: EntityField taggable (Key taggable)
-    , _taggingTagId :: EntityField tagging (Key tag)
-    , _taggingTaggableId :: EntityField tagging (Key taggable)
+data TaggingFieldDef taggable tag tagging =
+    TaggingFieldDef
+    { taggableId :: EntityField taggable (Key taggable)
+    , taggingTagId :: EntityField tagging (Key tag)
+    , taggingTaggableId :: EntityField tagging (Key taggable)
     }
-makeLenses ''TagQueryFieldDef
 
-data TagQuery query expr taggable tag tagging =
-    TagQuery
-    { _tags :: [Key tag]
-    , _anyTags :: [[Key tag]]
-    , _rejectTags :: [Key tag]
-    , _additional :: (expr (Entity taggable) -> query ())
-    , _fieldDef :: TagQueryFieldDef taggable tag tagging
-    }
-makeLenses ''TagQuery
+type Tagging query expr taggable tagging =
+    ( PersistEntity taggable
+    , PersistEntity tagging
+    , ToSomeValues expr (expr (Value (KeyBackend (PersistEntityBackend taggable) taggable)))
+    , From query expr (PersistEntityBackend taggable) (expr (Entity tagging))
+    )
 
-tagQuery :: Monad query
-         => TagQueryFieldDef taggable tag tagging
-         -> TagQuery query expr taggable tag tagging
-tagQuery = TagQuery [] [] [] (const (return ()))
+taggedWith, taggedWithAny, notTaggedWith
+    :: Tagging query expr taggable tagging
+    => TaggingFieldDef taggable tag tagging
+    -> expr (Entity taggable)
+    -> [Key tag]
+    -> query ()
+taggedWith fieldDef taggable tags = where_ $ taggedWith' fieldDef taggable tags
+taggedWithAny fieldDef taggable tags = where_ $ taggedWithAny' fieldDef taggable tags
+notTaggedWith fieldDef taggable tags = where_ $ notTaggedWith' fieldDef taggable tags
 
-type RunDbMonad m = ( C.MonadBaseControl IO m, MonadIO m, MonadLogger m
-                    , C.MonadUnsafeIO m, C.MonadThrow m )
 
-taggableQuery :: ( SqlEntity tagging
-                 , SqlEntity taggable
-                 , E.ToSomeValues expr (expr (Value (KeyBackend SqlBackend taggable)))
-                 , E.From query expr SqlBackend (expr (Entity tagging))
-                 , E.From query expr SqlBackend (expr (Entity taggable))
-                 )
-              => TagQuery query expr taggable tag tagging
-              -> query (expr (Entity taggable))
-taggableQuery TagQuery{..} =
-    E.from $ \taggable -> do
-        when (not . null $ _tags) $
-            E.where_ $ andQuery taggable _tags
-        when (not . null $ _anyTags) $
-            E.where_ $ foldr1 (E.&&.) $ map (anyQuery taggable) _anyTags
-        when (not . null $ _rejectTags) $
-            E.where_ $ E.notIn (taggable E.^. _taggableId) $
-                E.subList_select $
-                E.from $ \rejtags -> do
-                   E.where_ $ rejtags E.^. _taggingTagId `E.in_` E.valList _rejectTags
-                   return $ rejtags E.^. _taggingTaggableId
-        _additional taggable
-        return taggable
-  where
-    TagQueryFieldDef{..} = _fieldDef
-    andQuery = makeTagQuery _fieldDef (E.==. (E.val (length _tags)))
-    anyQuery = makeTagQuery _fieldDef (E.>. (E.val (0 :: Int)))
-
-selectTaggable :: ( SqlEntity taggable
-                  , SqlEntity tagging
-                  , RunDbMonad m
-                  )
-               => TagQuery SqlQuery SqlExpr taggable tag tagging
-               -> SqlPersistT m [Entity taggable]
-selectTaggable = E.select . taggableQuery
-
-selectTaggableSource
-    :: ( RunDbMonad m
-       , SqlEntity taggable
-       , SqlEntity tagging
-       )
-    => TagQuery SqlQuery SqlExpr taggable tag tagging
-    -> SqlPersistT m (C.Source (C.ResourceT (SqlPersistT m)) (Entity taggable))
-selectTaggableSource = E.selectSource . taggableQuery
+taggedWith', taggedWithAny', notTaggedWith'
+    :: Tagging query expr taggable tagging
+    => TaggingFieldDef taggable tag tagging
+    -> expr (Entity taggable)
+    -> [Key tag]
+    -> expr (Value Bool)
+taggedWith' fieldDef taggable tags = makeTagQuery fieldDef (==. (val (length tags))) taggable tags
+taggedWithAny' fieldDef = makeTagQuery fieldDef (>. (val (0 :: Int)))
+notTaggedWith' TaggingFieldDef{..} taggable tags =
+    notIn (taggable ^. taggableId) $
+        subList_select $
+        from $ \rejtags -> do
+            where_ $ rejtags ^. taggingTagId `in_` valList tags
+            return $ rejtags ^. taggingTaggableId
 
 makeTagQuery
-    :: ( SqlEntity taggable
-       , SqlEntity tagging
-       , E.ToSomeValues expr (expr (Value (KeyBackend SqlBackend taggable)))
-       , E.From query expr SqlBackend (expr (Entity tagging))
-       )
-    => TagQueryFieldDef taggable tag tagging
+    :: Tagging query expr taggable tagging
+    => TaggingFieldDef taggable tag tagging
     -> (expr (Value Int) -> expr (Value Bool))
     -> expr (Entity taggable) -> [Key tag] -> expr (Value Bool)
-makeTagQuery TagQueryFieldDef{..} condition taggable tagList =
-    E.in_ (taggable E.^. _taggableId) $
-    E.subList_select $
-    E.from $ \tagging -> do
-        E.where_ (tagging E.^. _taggingTagId `E.in_` (E.valList tagList))
-        E.groupBy (tagging E.^. _taggingTaggableId)
-        let cnt = E.count (tagging E.^. _taggingTaggableId)
-        E.having (condition cnt)
-        return (tagging E.^. _taggingTaggableId)
+makeTagQuery TaggingFieldDef{..} condition taggable tagList =
+    in_ (taggable ^. taggableId) $
+    subList_select $
+    from $ \tagging -> do
+        where_ (tagging ^. taggingTagId `in_` (valList tagList))
+        groupBy (tagging ^. taggingTaggableId)
+        let cnt = count (tagging ^. taggingTaggableId)
+        having (condition cnt)
+        return (tagging ^. taggingTaggableId)
 
 
