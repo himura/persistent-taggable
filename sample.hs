@@ -41,7 +41,6 @@ run = runStderrLoggingT .
 main :: IO ()
 main = run $ do
     let taggingField = Taggable.TaggingFieldDef LanguageId LanguageTagTag LanguageTagLanguage
-        taggedWith = Taggable.taggedWith taggingField
 
     haskell <- insert $ Language "Haskell"
     ocaml <- insert $ Language "OCaml"
@@ -65,19 +64,20 @@ main = run $ do
     void . insert $ LanguageTag haskell pure
 
     liftIO $ putStrLn "==== Functional ===="
-    res1 <- E.select $ E.from $ \language -> do
-        language `taggedWith` [functional]
+    res1 <- E.select $ E.from $ \(language `E.InnerJoin` tagging) -> do
+        Taggable.taggedWith' taggingField language tagging [functional]
         return language
     liftIO . mapM_ print $ res1
+
     liftIO $ putStrLn "==== Functional && Native ===="
-    res2 <- E.select $ E.from $ \language -> do
-        language `taggedWith` [functional, native]
+    res2 <- E.select $ E.from $ \(language `E.InnerJoin` tagging) -> do
+        Taggable.taggedWith' taggingField language tagging [functional, native]
         return language
     liftIO . mapM_ print $ res2
 
     liftIO $ putStrLn "==== Functional && Native ===="
-    res3 <- E.select $ E.from $ \language -> do
-        language `taggedWith` [functional, native]
+    res3 <- E.select $ E.from $ \(language `E.InnerJoin` tagging) -> do
+        Taggable.taggedWith' taggingField language tagging [functional, native]
         E.where_ $ (language E.^. LanguageFullname) E.!=. (E.val "Haskell")
         return language
     liftIO . mapM_ print $ res3

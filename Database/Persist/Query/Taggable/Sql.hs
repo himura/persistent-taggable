@@ -22,25 +22,30 @@ type Tagging query expr taggable tagging =
     , From query expr (PersistEntityBackend taggable) (expr (Entity tagging))
     )
 
-taggedWith, taggedWithAny, notTaggedWith
+notTaggedWith
     :: Tagging query expr taggable tagging
     => TaggingFieldDef taggable tag tagging
     -> expr (Entity taggable)
     -> [Key tag]
     -> query ()
-taggedWith fieldDef taggable tags = where_ $ taggedWith' fieldDef taggable tags
-taggedWithAny fieldDef taggable tags = where_ $ taggedWithAny' fieldDef taggable tags
 notTaggedWith fieldDef taggable tags = where_ $ notTaggedWith' fieldDef taggable tags
 
+taggedWith', taggedWithAny'
+    :: Tagging query expr taggable tagging
+    => TaggingFieldDef taggable tag tagging
+    -> expr (Entity taggable)
+    -> expr (Entity tagging)
+    -> [Key tag]
+    -> query ()
+taggedWith' fieldDef taggable tagging tags = makeTagQuery fieldDef (==. (val (length tags))) taggable tagging tags
+taggedWithAny' fieldDef = makeTagQuery fieldDef (>. (val (0 :: Int)))
 
-taggedWith', taggedWithAny', notTaggedWith'
+notTaggedWith'
     :: Tagging query expr taggable tagging
     => TaggingFieldDef taggable tag tagging
     -> expr (Entity taggable)
     -> [Key tag]
     -> expr (Value Bool)
-taggedWith' fieldDef taggable tags = makeTagQuery fieldDef (==. (val (length tags))) taggable tags
-taggedWithAny' fieldDef = makeTagQuery fieldDef (>. (val (0 :: Int)))
 notTaggedWith' TaggingFieldDef{..} taggable tags =
     notIn (taggable ^. taggableId) $
         subList_select $
@@ -49,18 +54,15 @@ notTaggedWith' TaggingFieldDef{..} taggable tags =
             return $ rejtags ^. taggingTaggableId
 
 makeTagQuery
-    :: Tagging query expr taggable tagging
+    :: (Tagging query expr taggable tagging)
     => TaggingFieldDef taggable tag tagging
     -> (expr (Value Int) -> expr (Value Bool))
-    -> expr (Entity taggable) -> [Key tag] -> expr (Value Bool)
-makeTagQuery TaggingFieldDef{..} condition taggable tagList =
-    in_ (taggable ^. taggableId) $
-    subList_select $
-    from $ \tagging -> do
-        where_ (tagging ^. taggingTagId `in_` (valList tagList))
-        groupBy (tagging ^. taggingTaggableId)
-        let cnt = count (tagging ^. taggingTaggableId)
-        having (condition cnt)
-        return (tagging ^. taggingTaggableId)
+    -> expr (Entity taggable) -> expr (Entity tagging) -> [Key tag] -> query ()
+makeTagQuery TaggingFieldDef{..} condition taggable tagging tagList = do
+    on $ taggable ^. taggableId ==. tagging ^. taggingTaggableId
+    where_ (tagging ^. taggingTagId `in_` (valList tagList))
+    groupBy (tagging ^. taggingTaggableId)
+    let cnt = count (tagging ^. taggingTaggableId)
+    having (condition cnt)
 
 
