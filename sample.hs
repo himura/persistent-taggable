@@ -81,3 +81,12 @@ main = run $ do
         E.where_ $ (language E.^. LanguageFullname) E.!=. (E.val "Haskell")
         return language
     liftIO . mapM_ print $ res3
+
+    hoge <- E.select $ test taggingField [functional] [native, jvm]
+    liftIO . mapM_ print $ hoge
+
+test fd tags1 tags2 = do
+    let query fd = E.from $ \taggable -> return (taggable, taggable)
+        query2 fd = Taggable.taggedWith fd tags1 query
+    (taggable, ret) <- Taggable.taggedWithAny fd tags2 query2
+    return ret
